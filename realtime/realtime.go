@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-  "engines/github.com/bmizerany/pat"
+  "engines/github.com.bmizerany.pat"
 )
 
 type AccountState int
