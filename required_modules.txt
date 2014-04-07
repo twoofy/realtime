@@ -1,1 +1,2 @@
 engines/twitterstream http://dev.socialiqnetworks.com:8000/svn/engines/twitterstream/trunk
+engines/github.com.bmizerany.pat http://dev.socialiqnetworks.com:8000/svn/engines/github.com.bmizerany.pat/trunk

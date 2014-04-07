@@ -4,17 +4,14 @@ import (
   "os"
   "os/signal"
   "syscall"
-	//"encoding/json"
 	"flag"
 	"fmt"
-  //"dev.socialiqnetworks.com/twitterstream"
-	//"github.com/darkhelmet/twitterstream"
 	"log"
 	"net/http"
 	"sync"
 	"time"
 
-  "twitter_real_time/deps/github.com/bmizerany/pat"
+  "engines/github.com/bmizerany/pat"
 )
 
 type AccountState int
