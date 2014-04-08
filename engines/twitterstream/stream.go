@@ -145,7 +145,7 @@ func openInternal(dial func(network, address string) (net.Conn, error),
 	if err != nil {
 		return nil, err
 	}
-  ts.conn.(*net.TCPConn).SetLinger(60)
+	ts.conn.(*net.TCPConn).SetLinger(60)
 
 	if req.URL.Scheme == "https" {
 		conn := tls.Client(ts.conn, &tls.Config{ServerName: host})
