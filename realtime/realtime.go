@@ -1,17 +1,17 @@
 package main
 
 import (
-  "os"
-  "os/signal"
-  "syscall"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
-  "engines/github.com.bmizerany.pat"
-  "realtime/account_store"
-  "realtime/account_entry"
+	"engines/github.com.bmizerany.pat"
+	"realtime/account_entry"
+	"realtime/account_store"
 )
 
 var Account_Store = account_store.New()
@@ -34,49 +34,49 @@ func ScanRequestHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func scannerListen() {
-  m := pat.New()
-  m.Put("/twitterstream/:id", http.HandlerFunc(twitterHttpHandler))
-  http.Handle("/", m)
-  http.ListenAndServe(":8080", nil)
+	m := pat.New()
+	m.Put("/twitterstream/:id", http.HandlerFunc(twitterHttpHandler))
+	http.Handle("/", m)
+	http.ListenAndServe(":8080", nil)
 }
 
 func main() {
-  // handle control-c and kill
-  c := make(chan os.Signal, 1) 
-  signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	// handle control-c and kill
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
-  go scannerListen()
+	go scannerListen()
 
 	go handleTwitterFilter()
 
 	reloadTimer := time.Tick(60 * time.Second)
 	for {
 		select {
-      case <-c:
-log.Println("Got close signal")
-        twitterStream.Close()
-        os.Exit(1)
-			case <-reloadTimer:
-        restart := false
-        accounts, present := Account_Store.AccountEntries(account_store.TWITTER_STREAM)
-        if present {
-          for _, account := range accounts {
-            account_id := account.AccountId()
-            state := account.State()
-            log.Printf("Account %s in state %d\n", account_id, state)
-            if state == account_entry.UNMONITORED {
-              restart = true
-              break
-            }
-          }
-        }
-        if(restart) {
-fmt.Println("Restarting twitterstream")
-          twitterStream.Close()
-        } else {
-fmt.Println("No need to restart twitterstream")
-        }
+		case <-c:
+			log.Println("Got close signal")
+			twitterStream.Close()
+			os.Exit(1)
+		case <-reloadTimer:
+			restart := false
+			accounts, present := Account_Store.AccountEntries(account_store.TWITTER_STREAM)
+			if present {
+				for _, account := range accounts {
+					account_id := account.AccountId()
+					state := account.State()
+					log.Printf("Account %s in state %d\n", account_id, state)
+					if state == account_entry.UNMONITORED {
+						restart = true
+						break
+					}
+				}
+			}
+			if restart {
+				fmt.Println("Restarting twitterstream")
+				twitterStream.Close()
+			} else {
+				fmt.Println("No need to restart twitterstream")
+			}
 		}
 	}
-	select { }
+	select {}
 }
