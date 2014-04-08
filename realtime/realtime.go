@@ -4,7 +4,6 @@ import (
   "os"
   "os/signal"
   "syscall"
-	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,17 +13,6 @@ import (
   "realtime/account_store"
   "realtime/account_entry"
 )
-
-type AccountState int
-
-const (
-	UNMONITORED AccountState = iota
-	MONITORED
-)
-
-var Credentials = map[string]string{}
-
-var credPath = flag.String("config", "config.json", "Path to configuration file containing the application's credentials.")
 
 var Account_Store = account_store.New()
 
