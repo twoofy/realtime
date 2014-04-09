@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -15,17 +16,11 @@ import (
 	"realtime/monitors/twitterstream"
 )
 
+var port *string = flag.String("port", "", "Please enter the port for the client to listen on. Port is required.")
 
 func init() {
 	log.Println("In intialize")
-	//test code should be removed. This should be dynamic eventually
 
-	//init_Account_Store_Entry(account_store.TWITTER_STREAM, "2183242184")
-	//init_Account_Store_Entry(account_store.TWITTER_STREAM, "14681605")
-	//init_Account_Store_Entry(account_store.TWITTER_STREAM, "25365536")
-	//init_Account_Store_Entry(account_store.TWITTER_STREAM, "139162440")
-
-	// End code that should be removed.
 }
 
 func ScanRequestHandler(w http.ResponseWriter, r *http.Request) {
@@ -34,6 +29,13 @@ func ScanRequestHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	flag.Parse()
+	log.Printf("This is the passed in port %s\n", *port)
+	if *port == "" {
+		log.Println("Port is required.")
+		os.Exit(1)
+	}
+
 	// handle control-c and kill
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
@@ -43,8 +45,7 @@ func main() {
 	twitter_manager := twitterstream.New(store)
 	go twitter_manager.Start()
 
-	go http.ListenAndServe(":8080", nil)
-
+	go http.ListenAndServe(":"+*port, nil)
 
 	reloadTimer := time.Tick(60 * time.Second)
 	for {
