@@ -38,14 +38,10 @@ type jsonResponse struct {
 var jsonResponses = make(map[jsonEnum]*[]byte)
 
 type jsonRequest struct {
-	ApiToken             string `json:"api_token"`
-	ApiTokenSecret       string `json:"api_token_secret"`
-	ApiOauthToken        string `json:"api_oauth_token"`
-	ApiOauthTokenSecret  string `json:"api_oauth_token_secret"`
-	UserToken            string `json:"user_token"`
-	UserTokenSecret      string `json:"user_token_secret"`
-	UserOauthToken       string `json:"user_oauth_token"`
-	UserOauthTokenSecret string `json:"user_oauth_token_secret"`
+	AppId               string `json:"app_id"`
+	AppSecret           string `json:"app_secret"`
+	ApiOauthToken       string `json:"api_oauth_token"`
+	ApiOauthTokenSecret string `json:"api_oauth_token_secret"`
 }
 
 var twitterStream *twitterstream.TwitterStream
@@ -85,7 +81,7 @@ func twitterHttpHandler(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		account_id := string(r.URL.Query().Get(":id"))
 		account, account_present := Account_Store.AccountEntry(account_store.TWITTER_STREAM, account_id)
-		twitterStream.Credentials(json_request.ApiToken, json_request.ApiTokenSecret, json_request.ApiOauthToken, json_request.ApiOauthTokenSecret)
+		twitterStream.Credentials(json_request.AppId, json_request.AppSecret, json_request.ApiOauthToken, json_request.ApiOauthTokenSecret)
 		if account_present {
 			if twitterStream.State() != twitterstream.UP {
 				w.Write(*jsonResponses[EXISTS_DO_SCAN_MONITORING_OFF])
