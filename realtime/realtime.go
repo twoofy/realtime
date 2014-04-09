@@ -2,17 +2,13 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
-	"realtime/account_entry"
 	"realtime/account_store"
-
 	"realtime/monitors/twitterstream"
 )
 
@@ -43,37 +39,18 @@ func main() {
 	store := account_store.New()
 
 	twitter_manager := twitterstream.New(store)
-	go twitter_manager.Start()
-
 	go http.ListenAndServe(":"+*port, nil)
 
-	reloadTimer := time.Tick(60 * time.Second)
+	twitter_manager.StartMonitor()
+	twitter_manager.StartRoute()
+
 	for {
 		select {
 		case <-c:
 			log.Println("Got close signal")
-			twitter_manager.Stop()
+			twitter_manager.StopMonitor()
+			twitter_manager.StopRoute()
 			os.Exit(1)
-		case <-reloadTimer:
-			restart := false
-			accounts, present := store.AccountEntries(account_store.TWITTER_STREAM)
-			if present {
-				for _, account := range accounts {
-					account_id := account.AccountId()
-					state := account.State()
-					log.Printf("Account %s in state %d\n", account_id, state)
-					if state == account_entry.UNMONITORED {
-						restart = true
-						break
-					}
-				}
-			}
-			if restart {
-				fmt.Println("Restarting twitterstream")
-				twitter_manager.Stop()
-			} else {
-				fmt.Println("No need to restart twitterstream")
-			}
 		}
 	}
 	select {}

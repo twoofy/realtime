@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"errors"
+	"time"
 
 	"engines/github.com.bmizerany.pat"
 
 	"engines/twitterstream"
+	"realtime/state"
 	"realtime/account_entry"
 	"realtime/account_store"
 )
@@ -24,6 +27,8 @@ const (
 	EXISTS_DO_SCAN_MONITORING_OFF
 	EXISTS_DO_SCAN_NEW_TWEET
 	EXISTS_DO_NOT_SCAN
+
+	NOT_FOUND
 
 	INVALID_REQUEST
 
@@ -60,20 +65,27 @@ func init() {
 
 	jsonResponses[INVALID_REQUEST] = makeJson(400, "", "invalid json", "cannot continue")
 
-	jsonResponses[INTERNAL_ERROR] = makeJson(500, "", "internal error", "please try again or contact tech support")
+	jsonResponses[INVALID_REQUEST] = makeJson(404, "", "not found", "route down")
 
+	jsonResponses[INTERNAL_ERROR] = makeJson(500, "", "internal error", "please try again or contact tech support")
 }
 
 type Manager struct {
 	store *account_store.Store
 	stream *twitterstream.TwitterStream
+	monitor *state.MonitoredState
+	router *state.MonitoredState
+	restart bool
 }
 
 func New(store *account_store.Store) (*Manager) {
 	var m Manager
+	m.monitor = state.New("monitor")
+	m.router = state.New("http")
 	m.setRoutes()
 	m.stream = twitterstream.New()
 	m.store = store
+	go m.restartMonitor()
 	return &m
 }
 
@@ -87,6 +99,10 @@ func (m *Manager) setRoutes() {
 
 func (m *Manager) httpHandler(w http.ResponseWriter, r *http.Request) {
 	var json_request jsonRequest
+	if m.router.State() != state.UP {
+		w.Write(*jsonResponses[NOT_FOUND])
+		return
+	}
 
 
 	dec := json.NewDecoder(r.Body)
@@ -124,27 +140,39 @@ func (m *Manager) httpHandler(w http.ResponseWriter, r *http.Request) {
 				w.Write(*jsonResponses[CREATED_DO_NOT_SCAN])
 			}
 			account.SetLastScan()
+			m.restart = true
 		}
 	} else {
 		w.Write(*jsonResponses[INVALID_REQUEST])
 	}
 }
 
-func (m *Manager) Start() {
+func (m *Manager) filter() {
+	if m.monitor.State() != state.STARTUP {
+		return
+	}
 	store := m.store
-	log.Println("handleTwitterFilter called")
-	for {
-		if m.stream.State() != twitterstream.UP {
-			slice, slice_present := store.AccountSlice(account_store.TWITTER_STREAM)
-			if slice_present {
-				m.stream.Filter(slice)
-				for _, user_id := range m.stream.UserIds {
-					account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, user_id)
-					if account_present {
-						account.SetState(account_entry.MONITORED)
-					}
-				}
+
+	slice, slice_present := store.AccountSlice(account_store.TWITTER_STREAM)
+	if slice_present {
+		m.stream.Open(slice)
+		for _, user_id := range m.stream.UserIds {
+			account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, user_id)
+			if account_present {
+				account.SetState(account_entry.MONITORED)
 			}
+		}
+	}
+
+	m.monitor.SetState(state.UP)
+	for {
+		if m.monitor.State() == state.SHUTDOWN {
+			break
+		}
+		if m.stream.State() != twitterstream.UP {
+			log.Println("twitterstream not open yet")
+			time.Sleep(1 * time.Second)
+			continue;
 		}
 		tweet_resp, err := m.stream.UnmarshalNext()
 		if err != nil {
@@ -174,14 +202,73 @@ func (m *Manager) Start() {
 				}
 			}
 			account.SetLastUpdate()
+		} else if tweet_resp == nil && err == nil {
 		} else {
 			log.Printf("WTF: %v\n", *tweet_resp)
 			// WTF!!!!
 		}
 	}
+	m.stream.Close()
+	m.monitor.SetState(state.DOWN)
+	return
 }
 
-func (m *Manager) Stop() {
+
+func (m *Manager) restartMonitor() {
+	reloadTimer := time.Tick(15 * time.Second)
+	for {
+		select {
+		case <-reloadTimer:
+			if m.restart && m.monitor.State() == state.UP {
+				log.Println("Restarting twitterstream monitor")
+				m.StopMonitor()
+				m.StartMonitor()
+				m.restart = false
+			} else {
+				log.Println("no need to restart twitterstream monitor")
+			}
+		}
+	}
+}
+
+func (m *Manager) StartMonitor() (bool, error) {
+	if m.monitor.State() != state.DOWN {
+		return false, errors.New("Monitor not down")
+	}
+	m.monitor.SetState(state.STARTUP)
+	go m.filter()
+	m.monitor.Wait()
+	return true, nil
+}
+
+func (m *Manager) StopMonitor() (bool, error) {
+	if m.monitor.State() != state.UP {
+		return false, errors.New("Monitor not up")
+	}
+	m.monitor.SetState(state.SHUTDOWN)
+	m.stream.Close()
+	m.monitor.Wait()
+	return true, nil
+}
+
+func (m *Manager) StartRoute() (bool, error) {
+	if m.router.State() != state.DOWN {
+		return false, errors.New("HTTP not down")
+	}
+	m.router.SetState(state.STARTUP)
+	m.router.SetState(state.UP)
+	m.router.Wait()
+	return true, nil
+}
+
+func (m *Manager) StopRoute() (bool, error) {
+	if m.router.State() != state.DOWN {
+		return false, errors.New("HTTP not up")
+	}
+	m.router.SetState(state.SHUTDOWN)
+	m.router.SetState(state.DOWN)
+	m.router.Wait()
+	return true, nil
 }
 
 func makeJson(code int, message string, err_message string, reason string) *[]byte {
