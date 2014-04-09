@@ -1,9 +1,11 @@
-package main
+package twitterstream
 
 import (
 	"encoding/json"
 	"log"
 	"net/http"
+
+	"engines/github.com.bmizerany.pat"
 
 	"engines/twitterstream"
 	"realtime/account_entry"
@@ -44,11 +46,8 @@ type jsonRequest struct {
 	ApiOauthTokenSecret string `json:"api_oauth_token_secret"`
 }
 
-var twitterStream *twitterstream.TwitterStream
 
 func init() {
-	twitterStream = twitterstream.New()
-
 	jsonResponses[CREATED_DO_SCAN_NOT_MONITORED] = makeJson(201, "yes", "", "not monitored")
 	jsonResponses[CREATED_DO_SCAN_MONITORING_OFF] = makeJson(201, "yes", "", "monitoring turned off")
 	jsonResponses[CREATED_DO_SCAN_NEW_TWEET] = makeJson(201, "yes", "", "new tweet has arrived")
@@ -62,28 +61,45 @@ func init() {
 	jsonResponses[INVALID_REQUEST] = makeJson(400, "", "invalid json", "cannot continue")
 
 	jsonResponses[INTERNAL_ERROR] = makeJson(500, "", "internal error", "please try again or contact tech support")
+
 }
 
-func makeJson(code int, message string, err_message string, reason string) *[]byte {
-	json, err := json.Marshal(jsonResponse{Code: code, Message: message, Error: err_message, Reason: reason})
-	if err != nil {
-		log.Fatalf("Unable to jsonMarshal(code %d, message '%s', err '%s', reason '%s'\n", code, message, err_message, reason)
-	}
-	return &json
+type Manager struct {
+	store *account_store.Store
+	stream *twitterstream.TwitterStream
 }
 
-func twitterHttpHandler(w http.ResponseWriter, r *http.Request) {
+func New(store *account_store.Store) (*Manager) {
+	var m Manager
+	m.setRoutes()
+	m.stream = twitterstream.New()
+	m.store = store
+	return &m
+}
+
+
+func (m *Manager) setRoutes() {
+	r := pat.New()
+
+	r.Put("/twitterstream/:id", http.HandlerFunc(m.httpHandler))
+	http.Handle("/", r)
+}
+
+func (m *Manager) httpHandler(w http.ResponseWriter, r *http.Request) {
 	var json_request jsonRequest
+
+
 	dec := json.NewDecoder(r.Body)
 
 	w.Header().Set("Content-Type", "application/json")
 	err := dec.Decode(&json_request)
 	if err == nil {
+		store := m.store
 		account_id := string(r.URL.Query().Get(":id"))
-		account, account_present := Account_Store.AccountEntry(account_store.TWITTER_STREAM, account_id)
-		twitterStream.Credentials(json_request.AppId, json_request.AppSecret, json_request.ApiOauthToken, json_request.ApiOauthTokenSecret)
+		account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, account_id)
+		m.stream.Credentials(json_request.AppId, json_request.AppSecret, json_request.ApiOauthToken, json_request.ApiOauthTokenSecret)
 		if account_present {
-			if twitterStream.State() != twitterstream.UP {
+			if m.stream.State() != twitterstream.UP {
 				w.Write(*jsonResponses[EXISTS_DO_SCAN_MONITORING_OFF])
 			} else if account.State() == account_entry.UNMONITORED {
 				w.Write(*jsonResponses[EXISTS_DO_SCAN_NOT_MONITORED])
@@ -94,11 +110,11 @@ func twitterHttpHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			account.SetLastScan()
 		} else {
-			Account_Store.AddAccountEntry(account_store.TWITTER_STREAM, account_id)
-			account, account_present := Account_Store.AccountEntry(account_store.TWITTER_STREAM, account_id)
+			store.AddAccountEntry(account_store.TWITTER_STREAM, account_id)
+			account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, account_id)
 			if !account_present {
 				w.Write(*jsonResponses[INTERNAL_ERROR])
-			} else if twitterStream.State() != twitterstream.UP {
+			} else if m.stream.State() != twitterstream.UP {
 				w.Write(*jsonResponses[CREATED_DO_SCAN_MONITORING_OFF])
 			} else if account.State() == account_entry.UNMONITORED {
 				w.Write(*jsonResponses[CREATED_DO_SCAN_NOT_MONITORED])
@@ -114,46 +130,47 @@ func twitterHttpHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func handleTwitterFilter() {
+func (m *Manager) Start() {
+	store := m.store
 	log.Println("handleTwitterFilter called")
 	for {
-		if twitterStream.State() != twitterstream.UP {
-			slice, slice_present := Account_Store.AccountSlice(account_store.TWITTER_STREAM)
+		if m.stream.State() != twitterstream.UP {
+			slice, slice_present := store.AccountSlice(account_store.TWITTER_STREAM)
 			if slice_present {
-				twitterStream.Filter(slice)
-				for _, user_id := range twitterStream.UserIds {
-					account, account_present := Account_Store.AccountEntry(account_store.TWITTER_STREAM, user_id)
+				m.stream.Filter(slice)
+				for _, user_id := range m.stream.UserIds {
+					account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, user_id)
 					if account_present {
 						account.SetState(account_entry.MONITORED)
 					}
 				}
 			}
 		}
-		tweet_resp, err := twitterStream.UnmarshalNext()
+		tweet_resp, err := m.stream.UnmarshalNext()
 		if err != nil {
 			log.Printf("UnmarshalNext error %s\n", err)
-			for _, user_id := range twitterStream.UserIds {
-				account, account_present := Account_Store.AccountEntry(account_store.TWITTER_STREAM, user_id)
+			for _, user_id := range m.stream.UserIds {
+				account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, user_id)
 				if account_present {
 					account.SetState(account_entry.UNMONITORED)
 				}
 			}
-			twitterStream.Close()
+			m.stream.Close()
 		} else if tweet_resp.ScanUserIdStr != nil {
 			account_id := *tweet_resp.ScanUserIdStr
-			log.Printf("Account Store contents %v\n", Account_Store)
+			log.Printf("Account Store contents %v\n", store)
 			log.Println("Tweet from twitterstream")
 			log.Printf("UserId %s\n", account_id)
-			account, present := Account_Store.AccountEntry(account_store.TWITTER_STREAM, account_id)
+			account, present := store.AccountEntry(account_store.TWITTER_STREAM, account_id)
 			if !present {
 				retweet_account_id := *tweet_resp.RetweetUserIdStr
-				_, retweet_present := Account_Store.AccountEntry(account_store.TWITTER_STREAM, retweet_account_id)
+				_, retweet_present := store.AccountEntry(account_store.TWITTER_STREAM, retweet_account_id)
 				if retweet_present {
 					log.Printf("Skipping %s because it is a retweet of a monitored account %s\n", account_id, retweet_account_id)
 					continue
 				} else {
-					log.Printf("Initializing non-existant Account_Store for %s because it was sent from twitterstream\n", account_id)
-					account = Account_Store.AddAccountEntry(account_store.TWITTER_STREAM, account_id)
+					log.Printf("Initializing non-existant store for %s because it was sent from twitterstream\n", account_id)
+					account = store.AddAccountEntry(account_store.TWITTER_STREAM, account_id)
 				}
 			}
 			account.SetLastUpdate()
@@ -163,3 +180,16 @@ func handleTwitterFilter() {
 		}
 	}
 }
+
+func (m *Manager) Stop() {
+}
+
+func makeJson(code int, message string, err_message string, reason string) *[]byte {
+	json, err := json.Marshal(jsonResponse{Code: code, Message: message, Error: err_message, Reason: reason})
+	if err != nil {
+		log.Fatalf("Unable to jsonMarshal(code %d, message '%s', err '%s', reason '%s'\n", code, message, err_message, reason)
+	}
+	return &json
+}
+
+

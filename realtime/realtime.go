@@ -9,12 +9,12 @@ import (
 	"syscall"
 	"time"
 
-	"engines/github.com.bmizerany.pat"
 	"realtime/account_entry"
 	"realtime/account_store"
+
+	"realtime/monitors/twitterstream"
 )
 
-var Account_Store = account_store.New()
 
 func init() {
 	log.Println("In intialize")
@@ -33,32 +33,29 @@ func ScanRequestHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Yes"))
 }
 
-func scannerListen() {
-	m := pat.New()
-	m.Put("/twitterstream/:id", http.HandlerFunc(twitterHttpHandler))
-	http.Handle("/", m)
-	http.ListenAndServe(":8080", nil)
-}
-
 func main() {
 	// handle control-c and kill
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
-	go scannerListen()
+	store := account_store.New()
 
-	go handleTwitterFilter()
+	twitter_manager := twitterstream.New(store)
+	go twitter_manager.Start()
+
+	go http.ListenAndServe(":8080", nil)
+
 
 	reloadTimer := time.Tick(60 * time.Second)
 	for {
 		select {
 		case <-c:
 			log.Println("Got close signal")
-			twitterStream.Close()
+			twitter_manager.Stop()
 			os.Exit(1)
 		case <-reloadTimer:
 			restart := false
-			accounts, present := Account_Store.AccountEntries(account_store.TWITTER_STREAM)
+			accounts, present := store.AccountEntries(account_store.TWITTER_STREAM)
 			if present {
 				for _, account := range accounts {
 					account_id := account.AccountId()
@@ -72,7 +69,7 @@ func main() {
 			}
 			if restart {
 				fmt.Println("Restarting twitterstream")
-				twitterStream.Close()
+				twitter_manager.Stop()
 			} else {
 				fmt.Println("No need to restart twitterstream")
 			}
