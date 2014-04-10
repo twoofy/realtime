@@ -47,7 +47,6 @@ func (state *MonitoredState) Sleep(dur time.Duration) {
 	state.sleeping = make(chan bool)
 	select {
 	case <-state.sleeping:
-		log.Println("Waking up from sleep early!")
 		timer.Stop()
 	case <-timer.C:
 	}
