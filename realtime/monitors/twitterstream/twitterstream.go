@@ -181,6 +181,7 @@ func (m *Manager) filter() {
 
 	m.monitor.SetState(state.UP)
 	for {
+log.Println("Begin loop")
 		if m.monitor.State() == state.SHUTDOWN {
 			break
 		}
@@ -196,6 +197,7 @@ func (m *Manager) filter() {
 				m.monitor.Sleep(60 * time.Second)
 				continue
 			}
+      log.Println("Connection opened %b", stream.Up())
 			for _, account_id := range slice {
 				account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, account_id)
 				if account_present {
@@ -241,8 +243,11 @@ func (m *Manager) filter() {
 		}
 		log.Printf("WTF: %v\n", *tweet_resp)
 	}
+  log.Println("Shutting down filter()")
 	stream.Close()
+  log.Println("stream.Close()")
 	m.monitor.SetState(state.DOWN)
+  log.Println("SetState(DOWN)")
 	return
 }
 
