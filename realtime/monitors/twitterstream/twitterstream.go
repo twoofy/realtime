@@ -176,7 +176,7 @@ func (m *Manager) filter() {
 	}
 	store := m.store
 
-	stream := twitterstream.New()
+	m.stream = twitterstream.New()
 	slice, slice_present := store.AccountSlice(account_store.TWITTER_STREAM)
 
 	m.monitor.SetState(state.UP)
@@ -185,19 +185,19 @@ log.Println("Begin loop")
 		if m.monitor.State() == state.SHUTDOWN {
 			break
 		}
-		if stream.Up() == false {
+		if m.stream.Up() == false {
 			if !slice_present {
 				log.Println("twitterstream not open yet")
 				m.monitor.Sleep(1 * time.Second)
 				continue
 			}
-			err := stream.Open(m.token, m.token_secret, m.oauth_token, m.oauth_token_secret, slice)
+			err := m.stream.Open(m.token, m.token_secret, m.oauth_token, m.oauth_token_secret, slice)
 			if err != nil {
 				log.Printf("Attempted to open connection but failed: %s - sleeping for 60 seconds\n", err)
 				m.monitor.Sleep(60 * time.Second)
 				continue
 			}
-      log.Println("Connection opened %b", stream.Up())
+      log.Println("Connection opened %b", m.stream.Up())
 			for _, account_id := range slice {
 				account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, account_id)
 				if account_present {
@@ -205,7 +205,7 @@ log.Println("Begin loop")
 				}
 			}
 		}
-		tweet_resp, err := stream.UnmarshalNext()
+		tweet_resp, err := m.stream.UnmarshalNext()
 		// stream is down to get tweet_resp == nil and err == nil
 		if tweet_resp == nil && err == nil {
 			continue
@@ -218,7 +218,7 @@ log.Println("Begin loop")
 					account.SetState(account_entry.UNMONITORED)
 				}
 			}
-			stream.Close()
+			m.stream.Close()
 			continue
 		}
 		if tweet_resp.ScanUserIdStr != nil {
@@ -244,7 +244,7 @@ log.Println("Begin loop")
 		log.Printf("WTF: %v\n", *tweet_resp)
 	}
   log.Println("Shutting down filter()")
-	stream.Close()
+	m.stream.Close()
   log.Println("stream.Close()")
 	m.monitor.SetState(state.DOWN)
   log.Println("SetState(DOWN)")
@@ -283,6 +283,7 @@ func (m *Manager) StopMonitor() (bool, error) {
 		return false, errors.New("Monitor not up")
 	}
 	m.monitor.SetState(state.SHUTDOWN)
+  m.stream.Close()
 	m.monitor.Wait()
 	return true, nil
 }
