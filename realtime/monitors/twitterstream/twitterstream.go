@@ -80,8 +80,8 @@ type Manager struct {
 
 func New(store *account_store.Store) (*Manager) {
 	var m Manager
-	m.monitor = state.New("monitor")
-	m.router = state.New("http")
+	m.monitor = state.New("twitterstream monitor")
+	m.router = state.New("twitterstream router")
 	m.setRoutes()
 	m.stream = twitterstream.New()
 	m.store = store
@@ -99,6 +99,7 @@ func (m *Manager) setRoutes() {
 
 func (m *Manager) httpHandler(w http.ResponseWriter, r *http.Request) {
 	var json_request jsonRequest
+
 	if m.router.State() != state.UP {
 		w.Write(*jsonResponses[NOT_FOUND])
 		return
@@ -262,7 +263,7 @@ func (m *Manager) StartRoute() (bool, error) {
 }
 
 func (m *Manager) StopRoute() (bool, error) {
-	if m.router.State() != state.DOWN {
+	if m.router.State() != state.UP {
 		return false, errors.New("HTTP not up")
 	}
 	m.router.SetState(state.SHUTDOWN)
