@@ -181,7 +181,6 @@ func (m *Manager) filter() {
 
 	m.monitor.SetState(state.UP)
 	for {
-log.Println("Begin loop")
 		if m.monitor.State() == state.SHUTDOWN {
 			break
 		}
@@ -245,9 +244,7 @@ log.Println("Begin loop")
 	}
   log.Println("Shutting down filter()")
 	m.stream.Close()
-  log.Println("stream.Close()")
 	m.monitor.SetState(state.DOWN)
-  log.Println("SetState(DOWN)")
 	return
 }
 
