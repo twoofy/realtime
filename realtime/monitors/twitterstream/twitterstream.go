@@ -2,17 +2,17 @@ package twitterstream
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
-	"errors"
 	"time"
 
 	"engines/github.com.bmizerany.pat"
 
 	"engines/twitterstream"
-	"realtime/state"
 	"realtime/account_entry"
 	"realtime/account_store"
+	"realtime/state"
 )
 
 type jsonEnum int
@@ -30,7 +30,8 @@ const (
 
 	NOT_FOUND
 
-	INVALID_REQUEST
+	INVALID_REQUEST_NOT_PARSABLE
+	INVALID_REQUEST_INVALID_JSON
 
 	INTERNAL_ERROR
 )
@@ -51,7 +52,6 @@ type jsonRequest struct {
 	ApiOauthTokenSecret string `json:"api_oauth_token_secret"`
 }
 
-
 func init() {
 	jsonResponses[CREATED_DO_SCAN_NOT_MONITORED] = makeJson(201, "yes", "", "not monitored")
 	jsonResponses[CREATED_DO_SCAN_MONITORING_OFF] = makeJson(201, "yes", "", "monitoring turned off")
@@ -63,32 +63,52 @@ func init() {
 	jsonResponses[EXISTS_DO_SCAN_NEW_TWEET] = makeJson(200, "yes", "", "new tweet has arrived")
 	jsonResponses[EXISTS_DO_NOT_SCAN] = makeJson(200, "no", "", "no new tweets")
 
-	jsonResponses[INVALID_REQUEST] = makeJson(400, "", "invalid json", "cannot continue")
+	jsonResponses[INVALID_REQUEST_NOT_PARSABLE] = makeJson(400, "", "invalid json", "cannot parse")
+	jsonResponses[INVALID_REQUEST_INVALID_JSON] = makeJson(400, "", "invalid json", "unexpected json")
 
-	jsonResponses[INVALID_REQUEST] = makeJson(404, "", "not found", "route down")
+	jsonResponses[NOT_FOUND] = makeJson(404, "", "not found", "route down")
 
 	jsonResponses[INTERNAL_ERROR] = makeJson(500, "", "internal error", "please try again or contact tech support")
 }
 
 type Manager struct {
-	store *account_store.Store
-	stream *twitterstream.TwitterStream
-	monitor *state.MonitoredState
-	router *state.MonitoredState
-	restart bool
+	store              *account_store.Store
+	stream             *twitterstream.TwitterStream
+	monitor            *state.MonitoredState
+	router             *state.MonitoredState
+	token              string
+	token_secret       string
+	oauth_token        string
+	oauth_token_secret string
+	restart            bool
 }
 
-func New(store *account_store.Store) (*Manager) {
+func New(store *account_store.Store) *Manager {
 	var m Manager
 	m.monitor = state.New("twitterstream monitor")
 	m.router = state.New("twitterstream router")
 	m.setRoutes()
-	m.stream = twitterstream.New()
 	m.store = store
 	go m.restartMonitor()
 	return &m
 }
 
+func (m *Manager) Credentials(j *jsonRequest) bool {
+	if j.AppId == "" || j.AppSecret == "" || j.ApiOauthToken == "" || j.ApiOauthTokenSecret == "" {
+		return false
+	}
+	if m.token != j.AppId || m.token_secret != j.AppSecret || m.oauth_token != j.ApiOauthToken || m.oauth_token_secret != j.ApiOauthTokenSecret {
+
+		m.token = j.AppId
+		m.token_secret = j.AppSecret
+		m.oauth_token = j.ApiOauthToken
+		m.oauth_token_secret = j.ApiOauthTokenSecret
+
+		log.Println("Credentials have changed")
+		m.restart = true
+	}
+	return true
+}
 
 func (m *Manager) setRoutes() {
 	r := pat.New()
@@ -105,7 +125,6 @@ func (m *Manager) httpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	dec := json.NewDecoder(r.Body)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -114,9 +133,12 @@ func (m *Manager) httpHandler(w http.ResponseWriter, r *http.Request) {
 		store := m.store
 		account_id := string(r.URL.Query().Get(":id"))
 		account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, account_id)
-		m.stream.Credentials(json_request.AppId, json_request.AppSecret, json_request.ApiOauthToken, json_request.ApiOauthTokenSecret)
+		if !m.Credentials(&json_request) {
+			w.Write(*jsonResponses[INVALID_REQUEST_INVALID_JSON])
+			return
+		}
 		if account_present {
-			if m.stream.State() != twitterstream.UP {
+			if m.monitor.State() != state.UP {
 				w.Write(*jsonResponses[EXISTS_DO_SCAN_MONITORING_OFF])
 			} else if account.State() == account_entry.UNMONITORED {
 				w.Write(*jsonResponses[EXISTS_DO_SCAN_NOT_MONITORED])
@@ -131,7 +153,7 @@ func (m *Manager) httpHandler(w http.ResponseWriter, r *http.Request) {
 			account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, account_id)
 			if !account_present {
 				w.Write(*jsonResponses[INTERNAL_ERROR])
-			} else if m.stream.State() != twitterstream.UP {
+			} else if m.monitor.State() != state.UP {
 				w.Write(*jsonResponses[CREATED_DO_SCAN_MONITORING_OFF])
 			} else if account.State() == account_entry.UNMONITORED {
 				w.Write(*jsonResponses[CREATED_DO_SCAN_NOT_MONITORED])
@@ -144,7 +166,7 @@ func (m *Manager) httpHandler(w http.ResponseWriter, r *http.Request) {
 			m.restart = true
 		}
 	} else {
-		w.Write(*jsonResponses[INVALID_REQUEST])
+		w.Write(*jsonResponses[INVALID_REQUEST_NOT_PARSABLE])
 	}
 }
 
@@ -154,38 +176,50 @@ func (m *Manager) filter() {
 	}
 	store := m.store
 
+	stream := twitterstream.New()
 	slice, slice_present := store.AccountSlice(account_store.TWITTER_STREAM)
-	if slice_present {
-		m.stream.Open(slice)
-		for _, user_id := range m.stream.UserIds {
-			account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, user_id)
-			if account_present {
-				account.SetState(account_entry.MONITORED)
-			}
-		}
-	}
 
 	m.monitor.SetState(state.UP)
 	for {
 		if m.monitor.State() == state.SHUTDOWN {
 			break
 		}
-		if m.stream.State() != twitterstream.UP {
-			log.Println("twitterstream not open yet")
-			time.Sleep(1 * time.Second)
-			continue;
+		if stream.Up() == false {
+			if !slice_present {
+				log.Println("twitterstream not open yet")
+				m.monitor.Sleep(1 * time.Second)
+				continue
+			}
+			err := stream.Open(m.token, m.token_secret, m.oauth_token, m.oauth_token_secret, slice)
+			if err != nil {
+				log.Printf("Attempted to open connection but failed: %s - sleeping for 60 seconds\n", err)
+				m.monitor.Sleep(60 * time.Second)
+				continue
+			}
+			for _, account_id := range slice {
+				account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, account_id)
+				if account_present {
+					account.SetState(account_entry.MONITORED)
+				}
+			}
 		}
-		tweet_resp, err := m.stream.UnmarshalNext()
+		tweet_resp, err := stream.UnmarshalNext()
+		// stream is down to get tweet_resp == nil and err == nil
+		if tweet_resp == nil && err == nil {
+			continue
+		}
 		if err != nil {
 			log.Printf("UnmarshalNext error %s\n", err)
-			for _, user_id := range m.stream.UserIds {
-				account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, user_id)
+			for _, account_id := range slice {
+				account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, account_id)
 				if account_present {
 					account.SetState(account_entry.UNMONITORED)
 				}
 			}
-			m.stream.Close()
-		} else if tweet_resp.ScanUserIdStr != nil {
+			stream.Close()
+			continue
+		}
+		if tweet_resp.ScanUserIdStr != nil {
 			account_id := *tweet_resp.ScanUserIdStr
 			log.Printf("Account Store contents %v\n", store)
 			log.Println("Tweet from twitterstream")
@@ -203,17 +237,14 @@ func (m *Manager) filter() {
 				}
 			}
 			account.SetLastUpdate()
-		} else if tweet_resp == nil && err == nil {
-		} else {
-			log.Printf("WTF: %v\n", *tweet_resp)
-			// WTF!!!!
+			continue
 		}
+		log.Printf("WTF: %v\n", *tweet_resp)
 	}
-	m.stream.Close()
+	stream.Close()
 	m.monitor.SetState(state.DOWN)
 	return
 }
-
 
 func (m *Manager) restartMonitor() {
 	reloadTimer := time.Tick(15 * time.Second)
@@ -247,7 +278,6 @@ func (m *Manager) StopMonitor() (bool, error) {
 		return false, errors.New("Monitor not up")
 	}
 	m.monitor.SetState(state.SHUTDOWN)
-	m.stream.Close()
 	m.monitor.Wait()
 	return true, nil
 }
@@ -279,5 +309,3 @@ func makeJson(code int, message string, err_message string, reason string) *[]by
 	}
 	return &json
 }
-
-
