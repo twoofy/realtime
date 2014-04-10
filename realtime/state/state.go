@@ -3,24 +3,27 @@ package state
 import (
 	"log"
 	"sync"
+	"time"
 )
 
 type monitoredEnum string
+
 const (
-	DOWN monitoredEnum = "DOWN"
-	STARTUP monitoredEnum = "STARTUP"
-	UP monitoredEnum = "UP"
+	DOWN     monitoredEnum = "DOWN"
+	STARTUP  monitoredEnum = "STARTUP"
+	UP       monitoredEnum = "UP"
 	SHUTDOWN monitoredEnum = "SHUTDOWN"
 )
 
 type MonitoredState struct {
-	name string
-	state monitoredEnum
-	rwlock sync.RWMutex
-	wg sync.WaitGroup
+	name     string
+	state    monitoredEnum
+	rwlock   sync.RWMutex
+	wg       sync.WaitGroup
+	sleeping chan bool
 }
 
-func New(name string) (*MonitoredState) {
+func New(name string) *MonitoredState {
 	var state MonitoredState
 
 	state.name = name
@@ -33,14 +36,31 @@ func (state *MonitoredState) Wait() {
 	state.wg.Wait()
 }
 
-
-func (state *MonitoredState) State() (monitoredEnum) {
+func (state *MonitoredState) State() monitoredEnum {
 	state.rwlock.RLock()
 	defer state.rwlock.RUnlock()
 	return state.state
 }
 
-func (state *MonitoredState) SetState(new_state monitoredEnum) (bool) {
+func (state *MonitoredState) Sleep(dur time.Duration) {
+	timer := time.NewTimer(dur)
+	state.sleeping = make(chan bool)
+	select {
+	case <-state.sleeping:
+		log.Println("Waking up from sleep early!")
+		timer.Stop()
+	case <-timer.C:
+	}
+	state.sleeping = nil
+}
+
+func (state *MonitoredState) SetState(new_state monitoredEnum) bool {
+	if new_state == state.state {
+		return true
+	}
+	if state.sleeping != nil {
+		state.sleeping <- true
+	}
 	state.rwlock.Lock()
 	defer state.rwlock.Unlock()
 	if state.state == "" && new_state == DOWN {
@@ -53,10 +73,10 @@ func (state *MonitoredState) SetState(new_state monitoredEnum) (bool) {
 		log.Printf("Done STARTUP WG for %s\n", state.name)
 		state.wg.Done()
 	} else if state.state == UP && new_state == SHUTDOWN {
-		log.Println("Add SHUTDOWN WG for %s\n", state.name)
+		log.Printf("Add SHUTDOWN WG for %s\n", state.name)
 		state.wg.Add(1)
 	} else if state.state == SHUTDOWN && new_state == DOWN {
-		log.Println("Done SHUTDOWN WG for %s\n", state.name)
+		log.Printf("Done SHUTDOWN WG for %s\n", state.name)
 		state.wg.Done()
 	} else {
 		log.Println("Cannot change for %s state from '%s' to '%s'\n", state.name, state.state, new_state)
@@ -66,4 +86,3 @@ func (state *MonitoredState) SetState(new_state monitoredEnum) (bool) {
 	state.state = new_state
 	return true
 }
-
