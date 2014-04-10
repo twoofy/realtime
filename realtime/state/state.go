@@ -47,16 +47,16 @@ func (state *MonitoredState) SetState(new_state monitoredEnum) (bool) {
 		state.state = DOWN
 		return true
 	} else if state.state == DOWN && new_state == STARTUP {
-		log.Println("Add STARTUP WG")
+		log.Printf("Add STARTUP WG for %s\n", state.name)
 		state.wg.Add(1)
 	} else if state.state == STARTUP && new_state == UP {
-		log.Println("Done STARTUP WG")
+		log.Printf("Done STARTUP WG for %s\n", state.name)
 		state.wg.Done()
 	} else if state.state == UP && new_state == SHUTDOWN {
-		log.Println("Add SHUTDOWN WG")
+		log.Println("Add SHUTDOWN WG for %s\n", state.name)
 		state.wg.Add(1)
 	} else if state.state == SHUTDOWN && new_state == DOWN {
-		log.Println("Done SHUTDOWN WG")
+		log.Println("Done SHUTDOWN WG for %s\n", state.name)
 		state.wg.Done()
 	} else {
 		log.Println("Cannot change for %s state from '%s' to '%s'\n", state.name, state.state, new_state)
