@@ -50,7 +50,7 @@ func (h *Entry) IsUpdated() bool {
 	return false
 }
 
-func (h *Entry) SetLastUpdate() {
+func (h *Entry) SetLastUpdate() bool {
 	h.rwlock.Lock()
 	defer h.rwlock.Unlock()
 
@@ -59,9 +59,10 @@ func (h *Entry) SetLastUpdate() {
 	h.last_update_dt = int64(time.Now().Unix())
 
 	log.Printf("Account Store contents %v", h)
+	return true
 }
 
-func (h *Entry) SetLastScan() {
+func (h *Entry) SetLastScan() bool {
 	h.rwlock.Lock()
 	defer h.rwlock.Unlock()
 
@@ -70,6 +71,7 @@ func (h *Entry) SetLastScan() {
 	h.last_scan_dt = int64(time.Now().Unix())
 
 	log.Println("Account Store contents %v", h)
+	return true
 }
 
 func New(account_id string) Entry {
