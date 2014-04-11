@@ -11,7 +11,7 @@ type Property string
 
 const (
 	TWITTER_STREAM Property = "twitterstream"
-  FAKE_STREAM Property = "fakestream"
+	FAKE_STREAM    Property = "fakestream"
 )
 
 type Store struct {

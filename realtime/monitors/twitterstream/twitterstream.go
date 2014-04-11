@@ -91,7 +91,7 @@ type jsonRequest struct {
 }
 
 type Manager struct {
-  name string
+	name               string
 	store              *account_store.Store
 	stream             *twitterstream.TwitterStream
 	monitor            *state.MonitoredState
@@ -105,7 +105,7 @@ type Manager struct {
 
 func New(store *account_store.Store, r *pat.PatternServeMux) *Manager {
 	var m Manager
-  m.name = string(account_store.TWITTER_STREAM)
+	m.name = string(account_store.TWITTER_STREAM)
 	m.monitor = state.New(m.name + " monitor")
 	m.router = state.New(m.name + " router")
 	m.setRoutes(r)
@@ -132,7 +132,7 @@ func (m *Manager) Credentials(j *jsonRequest) bool {
 }
 
 func (m *Manager) setRoutes(r *pat.PatternServeMux) {
-  path := "/" + m.name + "/:id"
+	path := "/" + m.name + "/:id"
 	r.Put(path, http.HandlerFunc(m.httpHandler))
 	r.Get(path, http.HandlerFunc(m.httpHandler))
 }
@@ -302,7 +302,7 @@ func (m *Manager) filter() {
 		if resp.ScanUserIdStr != nil {
 			account_id := *resp.ScanUserIdStr
 			log.Printf("Account Store contents %v\n", store)
-      log.Printf("Content from %s\n", m.name)
+			log.Printf("Content from %s\n", m.name)
 			log.Printf("UserId %s\n", account_id)
 			account, present := store.AccountEntry(account_store.TWITTER_STREAM, account_id)
 			if !present {

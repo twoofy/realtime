@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"math/rand"
 	"net/http"
 	"time"
-  "math/rand"
 
 	"engines/github.com.bmizerany.pat"
 
@@ -91,7 +91,7 @@ type jsonRequest struct {
 }
 
 type Manager struct {
-  name               string
+	name               string
 	store              *account_store.Store
 	stream             chan string
 	monitor            *state.MonitoredState
@@ -101,12 +101,12 @@ type Manager struct {
 	oauth_token        string
 	oauth_token_secret string
 	restart            bool
-  userIds []string
+	userIds            []string
 }
 
 func New(store *account_store.Store, r *pat.PatternServeMux) *Manager {
 	var m Manager
-  m.name = string(account_store.FAKE_STREAM)
+	m.name = string(account_store.FAKE_STREAM)
 	m.monitor = state.New(m.name + " monitor")
 	m.router = state.New(m.name + " router")
 	m.setRoutes(r)
@@ -133,7 +133,7 @@ func (m *Manager) Credentials(j *jsonRequest) bool {
 }
 
 func (m *Manager) setRoutes(r *pat.PatternServeMux) {
-  path := "/" + m.name + "/:id"
+	path := "/" + m.name + "/:id"
 	r.Put(path, http.HandlerFunc(m.httpHandler))
 	r.Get(path, http.HandlerFunc(m.httpHandler))
 }
@@ -252,45 +252,45 @@ func sendResponse(w http.ResponseWriter, r *http.Request, responseCode responseC
 }
 
 func (m *Manager) Up() bool {
-  if m.stream == nil {
-    return false
-  }
-  return true
+	if m.stream == nil {
+		return false
+	}
+	return true
 }
 
 func (m *Manager) Open(token string, token_secret string, oauth_token string, oauth_token_secret string, userIds []string) error {
-  if len(userIds) == 0 {
-    time.Sleep(1 * time.Second)
-    log.Println("Nothing to filter, not opening connection")
-    return nil
-  }
-  m.userIds = userIds
-  m.stream = make(chan string)
-  
-  return nil
+	if len(userIds) == 0 {
+		time.Sleep(1 * time.Second)
+		log.Println("Nothing to filter, not opening connection")
+		return nil
+	}
+	m.userIds = userIds
+	m.stream = make(chan string)
+
+	return nil
 }
 
 type fakeJson struct {
-  Id  string
+	Id string
 }
 
 func (m *Manager) UnmarshalNext() (*fakeJson, error) {
-  rand.Seed(time.Now().Unix())
-  secs := time.Duration(rand.Intn(9) + 1) * time.Second
+	rand.Seed(time.Now().Unix())
+	secs := time.Duration(rand.Intn(9)+1) * time.Second
 
-  reloadTimer := time.Tick(secs)
-  log.Printf("Sleeping for %s\n", secs)
-  for {
-    select {
-    case <-reloadTimer:
-      j_response := fakeJson{Id: m.userIds[rand.Intn(len(m.userIds))]}
-      return &j_response, nil
-    }
-  }
+	reloadTimer := time.Tick(secs)
+	log.Printf("Sleeping for %s\n", secs)
+	for {
+		select {
+		case <-reloadTimer:
+			j_response := fakeJson{Id: m.userIds[rand.Intn(len(m.userIds))]}
+			return &j_response, nil
+		}
+	}
 }
 
 func (m *Manager) Close() {
-  m.stream = nil
+	m.stream = nil
 }
 
 func (m *Manager) filter() {
@@ -348,10 +348,10 @@ func (m *Manager) filter() {
 			log.Printf("UserId %s\n", account_id)
 			account, present := store.AccountEntry(account_store.FAKE_STREAM, account_id)
 			if !present {
-        log.Printf("Account id %s is not present\n", account_id)
+				log.Printf("Account id %s is not present\n", account_id)
 			} else {
-			  account.SetLastUpdate()
-      }
+				account.SetLastUpdate()
+			}
 			continue
 		}
 		log.Printf("WTF: %v\n", *resp)
