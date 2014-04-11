@@ -39,6 +39,7 @@ type reasonCodeEnum string
 const (
 	REASON_DO_SCAN_NOT_MONITORED      reasonCodeEnum = "not monitored"
 	REASON_DO_SCAN_MONITORING_OFF     reasonCodeEnum = "monitoring turned off"
+	REASON_DO_SCAN_FIRST_SCAN         reasonCodeEnum = "first scan since monitor started"
 	REASON_DO_SCAN_NEW_CONTENT        reasonCodeEnum = "new content has arrived"
 	REASON_DO_NOT_SCAN_NO_NEW_CONTENT reasonCodeEnum = "no new content"
 
@@ -138,24 +139,65 @@ func (m *Manager) setRoutes() {
 
 func (m *Manager) httpHandler(w http.ResponseWriter, r *http.Request) {
 
+	w.Header().Set("Content-Type", "application/json")
+
 	if m.router.State() != state.UP {
-		updateAndSendResponse(w, r, RESPONSE_NOT_FOUND, SCAN_UNDEFINED, ERROR_ROUTE_DOWN, nil)
+		sendResponse(w, r, RESPONSE_NOT_FOUND, SCAN_UNDEFINED, ERROR_ROUTE_DOWN)
 		return
 	}
 
+	if r.Method != "GET" && r.Method != "HEAD" && r.Method != "PUT" {
+		return
+	}
+
+	if r.Method == "PUT" {
+		m.handlePut(w, r)
+	} else if r.Method == "GET" {
+		m.handleGet(w, r)
+	} else if r.Method == "HEAD" {
+		m.handleHead(w, r)
+	} else {
+		w.WriteHeader(int(RESPONSE_NOT_ALLOWED))
+		w.Write(*makeJson(RESPONSE_NOT_ALLOWED, SCAN_UNDEFINED, ERROR_TRY_ANOTHER_METHOD))
+	}
+}
+
+func (m *Manager) handleGet(w http.ResponseWriter, r *http.Request) {
+	account_id := string(r.URL.Query().Get(":id"))
+	account, account_present := m.store.AccountEntry(account_store.TWITTER_STREAM, account_id)
+	if account_present {
+		scanCode, reasonCode := m.scanCodeAndReason(account)
+		sendResponse(w, r, RESPONSE_OK, scanCode, reasonCode)
+	} else {
+		sendResponse(w, r, RESPONSE_NOT_FOUND, SCAN_UNDEFINED, ERROR_ACCOUNT_NOT_MONITORED)
+	}
+}
+
+func (m *Manager) handleHead(w http.ResponseWriter, r *http.Request) {
+	account_id := string(r.URL.Query().Get(":id"))
+	_, account_present := m.store.AccountEntry(account_store.TWITTER_STREAM, account_id)
+	if account_present {
+		w.WriteHeader(int(RESPONSE_OK))
+	} else {
+		w.WriteHeader(int(RESPONSE_NOT_FOUND))
+	}
+}
+
+func (m *Manager) handlePut(w http.ResponseWriter, r *http.Request) {
 	var json_request jsonRequest
 	dec := json.NewDecoder(r.Body)
 
 	err := dec.Decode(&json_request)
 
 	if err != nil {
-		updateAndSendResponse(w, r, RESPONSE_BAD_REQUEST, SCAN_UNDEFINED, ERROR_JSON_UNPARSABLE, nil)
+		sendResponse(w, r, RESPONSE_BAD_REQUEST, SCAN_UNDEFINED, ERROR_JSON_UNPARSABLE)
 		return
 	}
 	if !m.Credentials(&json_request) {
-		updateAndSendResponse(w, r, RESPONSE_BAD_REQUEST, SCAN_UNDEFINED, ERROR_JSON_INVALID, nil)
+		sendResponse(w, r, RESPONSE_BAD_REQUEST, SCAN_UNDEFINED, ERROR_JSON_INVALID)
 		return
 	}
+
 	var account *account_entry.Entry
 	var account_present bool
 
@@ -175,51 +217,37 @@ func (m *Manager) httpHandler(w http.ResponseWriter, r *http.Request) {
 			responseCode = RESPONSE_CREATED
 			m.restart = true
 		} else {
-			updateAndSendResponse(w, r, RESPONSE_INTERNAL_ERROR, SCAN_UNDEFINED, ERROR_ACCOUNT_CANNOT_STORE, nil)
+			sendResponse(w, r, RESPONSE_INTERNAL_ERROR, SCAN_UNDEFINED, ERROR_ACCOUNT_CANNOT_STORE)
 			return
 		}
 	}
-	if m.monitor.State() != state.UP {
-		scanCode = SCAN_YES
-		reasonCode = REASON_DO_SCAN_MONITORING_OFF
-	} else if account.State() == account_entry.UNMONITORED {
-		scanCode = SCAN_YES
-		reasonCode = REASON_DO_SCAN_NOT_MONITORED
-	} else if account.IsUpdated() == true {
-		scanCode = SCAN_YES
-		reasonCode = REASON_DO_SCAN_NEW_CONTENT
-	} else {
-		scanCode = SCAN_NO
-		reasonCode = REASON_DO_NOT_SCAN_NO_NEW_CONTENT
-	}
-	updateAndSendResponse(w, r, responseCode, scanCode, reasonCode, nil)
-}
-
-func updateAndSendResponse(w http.ResponseWriter, r *http.Request, responseCode responseCodeEnum, scanCode scanCodeEnum, reasonCode reasonCodeEnum, account *account_entry.Entry) {
-
-	w.Header().Set("Content-Type", "application/json")
-
-	if r.Method != "GET" && r.Method != "HEAD" && r.Method != "PUT" {
-		w.WriteHeader(int(RESPONSE_NOT_ALLOWED))
-		w.Write(*makeJson(RESPONSE_NOT_ALLOWED, SCAN_UNDEFINED, ERROR_TRY_ANOTHER_METHOD))
+	scanCode, reasonCode = m.scanCodeAndReason(account)
+	if account.SetLastScan() == false {
+		w.WriteHeader(int(RESPONSE_INTERNAL_ERROR))
+		w.Write(*makeJson(RESPONSE_INTERNAL_ERROR, SCAN_UNDEFINED, ERROR_ACCOUNT_CANNOT_UPDATE_LASTSCAN))
 		return
 	}
-	json_bytes := makeJson(responseCode, scanCode, reasonCode)
-	if account != nil && r.Method == "PUT" {
-		if account.SetLastScan() == true {
-			w.WriteHeader(int(responseCode))
-			w.Write(*json_bytes)
-		} else {
-			w.WriteHeader(int(RESPONSE_INTERNAL_ERROR))
-			w.Write(*makeJson(RESPONSE_INTERNAL_ERROR, SCAN_UNDEFINED, ERROR_ACCOUNT_CANNOT_UPDATE_LASTSCAN))
-			return
-		}
+	sendResponse(w, r, responseCode, scanCode, reasonCode)
+}
+
+func (m *Manager) scanCodeAndReason(account *account_entry.Entry) (scanCodeEnum, reasonCodeEnum) {
+	if m.monitor.State() != state.UP {
+		return SCAN_YES, REASON_DO_SCAN_MONITORING_OFF
+	} else if account.State() == account_entry.UNMONITORED {
+		return SCAN_YES, REASON_DO_SCAN_NOT_MONITORED
+	} else if account.ScannerSeen() == false {
+		return SCAN_YES, REASON_DO_SCAN_FIRST_SCAN
+	} else if account.IsUpdated() == true {
+		return SCAN_YES, REASON_DO_SCAN_NEW_CONTENT
 	} else {
-		w.WriteHeader(int(responseCode))
-		if r.Method != "HEAD" {
-			w.Write(*json_bytes)
-		}
+		return SCAN_NO, REASON_DO_NOT_SCAN_NO_NEW_CONTENT
 	}
+}
+
+func sendResponse(w http.ResponseWriter, r *http.Request, responseCode responseCodeEnum, scanCode scanCodeEnum, reasonCode reasonCodeEnum) {
+	json_bytes := makeJson(responseCode, scanCode, reasonCode)
+	w.WriteHeader(int(responseCode))
+	w.Write(*json_bytes)
 }
 
 func (m *Manager) filter() {
