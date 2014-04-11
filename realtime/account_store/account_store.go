@@ -1,6 +1,8 @@
 package account_store
 
 import (
+	"encoding/json"
+	"io"
 	"log"
 	"sync"
 
@@ -18,6 +20,33 @@ type Store struct {
 	account_entries map[Property]map[string]*account_entry.Entry
 	account_slice   map[Property][]string
 	rwlock          sync.RWMutex
+}
+
+type Credential struct {
+	AppId               string `json:"app_id"`
+	AppSecret           string `json:"app_secret"`
+	ApiOauthToken       string `json:"api_oauth_token"`
+	ApiOauthTokenSecret string `json:"api_oauth_token_secret"`
+	Restart             bool
+}
+
+func CredentialFromJson(r io.ReadCloser) *Credential {
+	var c Credential
+	dec := json.NewDecoder(r)
+
+	err := dec.Decode(&c)
+
+	if err != nil {
+		return nil
+	}
+	return &c
+}
+
+func (c *Credential) Valid() bool {
+	if c.AppId == "" || c.AppSecret == "" || c.ApiOauthToken == "" || c.ApiOauthTokenSecret == "" {
+		return false
+	}
+	return true
 }
 
 var StoreSlice = make(map[Property][]string)
