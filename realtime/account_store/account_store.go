@@ -7,10 +7,11 @@ import (
 	"realtime/account_entry"
 )
 
-type Property int
+type Property string
 
 const (
-	TWITTER_STREAM Property = iota
+	TWITTER_STREAM Property = "twitterstream"
+  FAKE_STREAM Property = "fakestream"
 )
 
 type Store struct {

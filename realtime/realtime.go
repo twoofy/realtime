@@ -8,8 +8,11 @@ import (
 	"os/signal"
 	"syscall"
 
+  "engines/github.com.bmizerany.pat"
+
 	"realtime/account_store"
 	"realtime/monitors/twitterstream"
+	"realtime/monitors/fakestream"
 )
 
 var port *string = flag.String("port", "", "Please enter the port for the client to listen on. Port is required.")
@@ -37,12 +40,19 @@ func main() {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
 	store := account_store.New()
+  r := pat.New()
 
-	twitter_manager := twitterstream.New(store)
+	twitter_manager := twitterstream.New(store, r)
+	fake_manager := fakestream.New(store, r)
+
+  http.Handle("/", r)
 	go http.ListenAndServe(":"+*port, nil)
 
 	twitter_manager.StartMonitor()
 	twitter_manager.StartRoute()
+
+	fake_manager.StartMonitor()
+	fake_manager.StartRoute()
 
 	for {
 		select {

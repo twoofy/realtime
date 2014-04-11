@@ -1,4 +1,4 @@
-package twitterstream
+package fakestream
 
 import (
 	"encoding/json"
@@ -6,10 +6,10 @@ import (
 	"log"
 	"net/http"
 	"time"
+  "math/rand"
 
 	"engines/github.com.bmizerany.pat"
 
-	"engines/twitterstream"
 	"realtime/account_entry"
 	"realtime/account_store"
 	"realtime/state"
@@ -91,9 +91,9 @@ type jsonRequest struct {
 }
 
 type Manager struct {
-  name string
+  name               string
 	store              *account_store.Store
-	stream             *twitterstream.TwitterStream
+	stream             chan string
 	monitor            *state.MonitoredState
 	router             *state.MonitoredState
 	token              string
@@ -101,11 +101,12 @@ type Manager struct {
 	oauth_token        string
 	oauth_token_secret string
 	restart            bool
+  userIds []string
 }
 
 func New(store *account_store.Store, r *pat.PatternServeMux) *Manager {
 	var m Manager
-  m.name = string(account_store.TWITTER_STREAM)
+  m.name = string(account_store.FAKE_STREAM)
 	m.monitor = state.New(m.name + " monitor")
 	m.router = state.New(m.name + " router")
 	m.setRoutes(r)
@@ -164,7 +165,7 @@ func (m *Manager) httpHandler(w http.ResponseWriter, r *http.Request) {
 
 func (m *Manager) handleGet(w http.ResponseWriter, r *http.Request) {
 	account_id := string(r.URL.Query().Get(":id"))
-	account, account_present := m.store.AccountEntry(account_store.TWITTER_STREAM, account_id)
+	account, account_present := m.store.AccountEntry(account_store.FAKE_STREAM, account_id)
 	if account_present {
 		scanCode, reasonCode := m.scanCodeAndReason(account)
 		sendResponse(w, r, RESPONSE_OK, scanCode, reasonCode)
@@ -175,7 +176,7 @@ func (m *Manager) handleGet(w http.ResponseWriter, r *http.Request) {
 
 func (m *Manager) handleHead(w http.ResponseWriter, r *http.Request) {
 	account_id := string(r.URL.Query().Get(":id"))
-	_, account_present := m.store.AccountEntry(account_store.TWITTER_STREAM, account_id)
+	_, account_present := m.store.AccountEntry(account_store.FAKE_STREAM, account_id)
 	if account_present {
 		w.WriteHeader(int(RESPONSE_OK))
 	} else {
@@ -207,12 +208,12 @@ func (m *Manager) handlePut(w http.ResponseWriter, r *http.Request) {
 
 	store := m.store
 	account_id := string(r.URL.Query().Get(":id"))
-	account, account_present = store.AccountEntry(account_store.TWITTER_STREAM, account_id)
+	account, account_present = store.AccountEntry(account_store.FAKE_STREAM, account_id)
 	if account_present {
 		responseCode = RESPONSE_OK
 	} else {
-		store.AddAccountEntry(account_store.TWITTER_STREAM, account_id)
-		account, account_present = store.AccountEntry(account_store.TWITTER_STREAM, account_id)
+		store.AddAccountEntry(account_store.FAKE_STREAM, account_id)
+		account, account_present = store.AccountEntry(account_store.FAKE_STREAM, account_id)
 		if account_present {
 			responseCode = RESPONSE_CREATED
 			m.restart = true
@@ -250,40 +251,81 @@ func sendResponse(w http.ResponseWriter, r *http.Request, responseCode responseC
 	w.Write(*json_bytes)
 }
 
+func (m *Manager) Up() bool {
+  if m.stream == nil {
+    return false
+  }
+  return true
+}
+
+func (m *Manager) Open(token string, token_secret string, oauth_token string, oauth_token_secret string, userIds []string) error {
+  if len(userIds) == 0 {
+    time.Sleep(1 * time.Second)
+    log.Println("Nothing to filter, not opening connection")
+    return nil
+  }
+  m.userIds = userIds
+  m.stream = make(chan string)
+  
+  return nil
+}
+
+type fakeJson struct {
+  Id  string
+}
+
+func (m *Manager) UnmarshalNext() (*fakeJson, error) {
+  rand.Seed(time.Now().Unix())
+  secs := time.Duration(rand.Intn(9) + 1) * time.Second
+
+  reloadTimer := time.Tick(secs)
+  log.Printf("Sleeping for %s\n", secs)
+  for {
+    select {
+    case <-reloadTimer:
+      j_response := fakeJson{Id: m.userIds[rand.Intn(len(m.userIds))]}
+      return &j_response, nil
+    }
+  }
+}
+
+func (m *Manager) Close() {
+  m.stream = nil
+}
+
 func (m *Manager) filter() {
 	if m.monitor.State() != state.STARTUP {
 		return
 	}
 	store := m.store
 
-	m.stream = twitterstream.New()
-	slice, slice_present := store.AccountSlice(account_store.TWITTER_STREAM)
+	slice, slice_present := store.AccountSlice(account_store.FAKE_STREAM)
 
 	m.monitor.SetState(state.UP)
 	for {
 		if m.monitor.State() == state.SHUTDOWN {
 			break
 		}
-		if m.stream.Up() == false {
+		if m.Up() == false {
 			if !slice_present {
 				log.Println(m.name + " not open yet")
 				m.monitor.Sleep(1 * time.Second)
 			}
-			err := m.stream.Open(m.token, m.token_secret, m.oauth_token, m.oauth_token_secret, slice)
+			err := m.Open(m.token, m.token_secret, m.oauth_token, m.oauth_token_secret, slice)
 			if err != nil {
 				log.Printf("Attempted to open connection but failed: %s - sleeping for 60 seconds\n", err)
 				m.monitor.Sleep(60 * time.Second)
 			}
-			log.Println("Connection opened %b", m.stream.Up())
+			log.Println("Connection opened %b", m.Up())
 			for _, account_id := range slice {
-				account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, account_id)
+				account, account_present := store.AccountEntry(account_store.FAKE_STREAM, account_id)
 				if account_present {
 					account.SetState(account_entry.MONITORED)
 				}
 			}
 			continue
 		}
-		resp, err := m.stream.UnmarshalNext()
+		resp, err := m.UnmarshalNext()
 		// stream is down to get resp == nil and err == nil
 		if resp == nil && err == nil {
 			continue
@@ -291,38 +333,31 @@ func (m *Manager) filter() {
 		if err != nil {
 			log.Printf("UnmarshalNext error %s\n", err)
 			for _, account_id := range slice {
-				account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, account_id)
+				account, account_present := store.AccountEntry(account_store.FAKE_STREAM, account_id)
 				if account_present {
 					account.SetState(account_entry.UNMONITORED)
 				}
 			}
-			m.stream.Close()
+			m.Close()
 			continue
 		}
-		if resp.ScanUserIdStr != nil {
-			account_id := *resp.ScanUserIdStr
+		if resp.Id != "" {
+			account_id := resp.Id
 			log.Printf("Account Store contents %v\n", store)
-      log.Printf("Content from %s\n", m.name)
+			log.Printf("Content from %s\n", m.name)
 			log.Printf("UserId %s\n", account_id)
-			account, present := store.AccountEntry(account_store.TWITTER_STREAM, account_id)
+			account, present := store.AccountEntry(account_store.FAKE_STREAM, account_id)
 			if !present {
-				retweet_account_id := *resp.RetweetUserIdStr
-				_, retweet_present := store.AccountEntry(account_store.TWITTER_STREAM, retweet_account_id)
-				if retweet_present {
-					log.Printf("Skipping %s because it is a retweet of a monitored account %s\n", account_id, retweet_account_id)
-					continue
-				} else {
-					log.Printf("Initializing non-existant store for %s because it was sent from %s\n", account_id, m.name)
-					account = store.AddAccountEntry(account_store.TWITTER_STREAM, account_id)
-				}
-			}
-			account.SetLastUpdate()
+        log.Printf("Account id %s is not present\n", account_id)
+			} else {
+			  account.SetLastUpdate()
+      }
 			continue
 		}
 		log.Printf("WTF: %v\n", *resp)
 	}
 	log.Println("Shutting down filter()")
-	m.stream.Close()
+	m.Close()
 	m.monitor.SetState(state.DOWN)
 	return
 }
@@ -333,12 +368,12 @@ func (m *Manager) restartMonitor() {
 		select {
 		case <-reloadTimer:
 			if m.restart && m.monitor.State() == state.UP {
-				log.Printf("Restarting %s monitor\n", m.name)
+				log.Println("Restarting " + m.name + " monitor")
 				m.StopMonitor()
 				m.StartMonitor()
 				m.restart = false
 			} else {
-				log.Printf("no need to restart %s monitor\n", m.name)
+				log.Println("no need to restart " + m.name + " monitor")
 			}
 		}
 	}
@@ -359,7 +394,7 @@ func (m *Manager) StopMonitor() (bool, error) {
 		return false, errors.New("Monitor not up")
 	}
 	m.monitor.SetState(state.SHUTDOWN)
-	m.stream.Close()
+	m.Close()
 	m.monitor.Wait()
 	return true, nil
 }
