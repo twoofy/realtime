@@ -18,6 +18,7 @@ type Entry struct {
 	account_id     string
 	last_scan_dt   int64
 	last_update_dt int64
+	scanner_seen   bool
 	state          AccountState
 	rwlock         sync.RWMutex
 }
@@ -38,6 +39,13 @@ func (h *Entry) State() AccountState {
 	defer h.rwlock.RUnlock()
 
 	return h.state
+}
+
+func (h *Entry) ScannerSeen() bool {
+	h.rwlock.RLock()
+	defer h.rwlock.RUnlock()
+
+	return h.scanner_seen
 }
 
 func (h *Entry) IsUpdated() bool {
@@ -70,6 +78,11 @@ func (h *Entry) SetLastScan() bool {
 	fmt.Printf("This is the last scan %+v\n", last_scan)
 	h.last_scan_dt = int64(time.Now().Unix())
 
+	if h.scanner_seen == false && h.state == MONITORED {
+		h.scanner_seen = true
+		log.Println("Setting scanner_seen to true")
+	}
+
 	log.Println("Account Store contents %v", h)
 	return true
 }
@@ -79,6 +92,7 @@ func New(account_id string) Entry {
 
 	account_entry.account_id = account_id
 	account_entry.state = UNMONITORED
+	account_entry.scanner_seen = false
 
 	return account_entry
 }
