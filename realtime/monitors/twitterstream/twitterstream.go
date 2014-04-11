@@ -15,60 +15,78 @@ import (
 	"realtime/state"
 )
 
-type jsonEnum int
+type responseCodeEnum int
 
 const (
-	CREATED_DO_SCAN_NOT_MONITORED jsonEnum = iota
-	CREATED_DO_SCAN_MONITORING_OFF
-	CREATED_DO_SCAN_NEW_TWEET
-	CREATED_DO_NOT_SCAN
+	RESPONSE_OK             responseCodeEnum = http.StatusOK
+	RESPONSE_CREATED        responseCodeEnum = http.StatusCreated
+	RESPONSE_BAD_REQUEST    responseCodeEnum = http.StatusBadRequest
+	RESPONSE_NOT_FOUND      responseCodeEnum = http.StatusNotFound
+	RESPONSE_NOT_ALLOWED    responseCodeEnum = http.StatusMethodNotAllowed
+	RESPONSE_INTERNAL_ERROR responseCodeEnum = http.StatusInternalServerError
+)
 
-	EXISTS_DO_SCAN_NOT_MONITORED
-	EXISTS_DO_SCAN_MONITORING_OFF
-	EXISTS_DO_SCAN_NEW_TWEET
-	EXISTS_DO_NOT_SCAN
+type scanCodeEnum string
 
-	NOT_FOUND
+const (
+	SCAN_UNDEFINED scanCodeEnum = ""
+	SCAN_YES       scanCodeEnum = "yes"
+	SCAN_NO        scanCodeEnum = "no"
+)
 
-	INVALID_REQUEST_NOT_PARSABLE
-	INVALID_REQUEST_INVALID_JSON
+type reasonCodeEnum string
 
-	INTERNAL_ERROR
+const (
+	REASON_DO_SCAN_NOT_MONITORED      reasonCodeEnum = "not monitored"
+	REASON_DO_SCAN_MONITORING_OFF     reasonCodeEnum = "monitoring turned off"
+	REASON_DO_SCAN_NEW_CONTENT        reasonCodeEnum = "new content has arrived"
+	REASON_DO_NOT_SCAN_NO_NEW_CONTENT reasonCodeEnum = "no new content"
+
+	ERROR_JSON_UNPARSABLE                reasonCodeEnum = "cannot parse"
+	ERROR_JSON_INVALID                   reasonCodeEnum = "unexpected json"
+	ERROR_ACCOUNT_NOT_MONITORED          reasonCodeEnum = "account is not monitored"
+	ERROR_ROUTE_DOWN                     reasonCodeEnum = "route down"
+	ERROR_TRY_ANOTHER_METHOD             reasonCodeEnum = "try another method"
+	ERROR_ACCOUNT_CANNOT_STORE           reasonCodeEnum = "could not store account for monitoring"
+	ERROR_ACCOUNT_CANNOT_UPDATE_LASTSCAN reasonCodeEnum = "unable to update last scan date"
 )
 
 type jsonResponse struct {
-	Code    int
+	Code    responseCodeEnum
 	Message string `json:",omitempty"`
-	Error   string `json:",omitempty"`
 	Reason  string `json:",omitempty"`
 }
 
-var jsonResponses = make(map[jsonEnum]*[]byte)
+var jsonResponses = make(map[jsonResponse]*[]byte)
+
+func init() {
+	makeJson(RESPONSE_OK, SCAN_YES, REASON_DO_SCAN_NOT_MONITORED)
+	makeJson(RESPONSE_OK, SCAN_YES, REASON_DO_SCAN_MONITORING_OFF)
+	makeJson(RESPONSE_OK, SCAN_YES, REASON_DO_SCAN_NEW_CONTENT)
+	makeJson(RESPONSE_OK, SCAN_NO, REASON_DO_NOT_SCAN_NO_NEW_CONTENT)
+
+	makeJson(RESPONSE_CREATED, SCAN_YES, REASON_DO_SCAN_NOT_MONITORED)
+	makeJson(RESPONSE_CREATED, SCAN_YES, REASON_DO_SCAN_MONITORING_OFF)
+	makeJson(RESPONSE_CREATED, SCAN_YES, REASON_DO_SCAN_NEW_CONTENT)
+	makeJson(RESPONSE_CREATED, SCAN_NO, REASON_DO_NOT_SCAN_NO_NEW_CONTENT)
+
+	makeJson(RESPONSE_BAD_REQUEST, SCAN_UNDEFINED, ERROR_JSON_UNPARSABLE)
+	makeJson(RESPONSE_BAD_REQUEST, SCAN_UNDEFINED, ERROR_JSON_INVALID)
+
+	makeJson(RESPONSE_NOT_FOUND, SCAN_UNDEFINED, ERROR_ACCOUNT_NOT_MONITORED)
+	makeJson(RESPONSE_NOT_FOUND, SCAN_UNDEFINED, ERROR_ROUTE_DOWN)
+
+	makeJson(RESPONSE_NOT_ALLOWED, SCAN_UNDEFINED, ERROR_TRY_ANOTHER_METHOD)
+
+	makeJson(RESPONSE_INTERNAL_ERROR, SCAN_UNDEFINED, ERROR_ACCOUNT_CANNOT_STORE)
+	makeJson(RESPONSE_INTERNAL_ERROR, SCAN_UNDEFINED, ERROR_ACCOUNT_CANNOT_UPDATE_LASTSCAN)
+}
 
 type jsonRequest struct {
 	AppId               string `json:"app_id"`
 	AppSecret           string `json:"app_secret"`
 	ApiOauthToken       string `json:"api_oauth_token"`
 	ApiOauthTokenSecret string `json:"api_oauth_token_secret"`
-}
-
-func init() {
-	jsonResponses[CREATED_DO_SCAN_NOT_MONITORED] = makeJson(201, "yes", "", "not monitored")
-	jsonResponses[CREATED_DO_SCAN_MONITORING_OFF] = makeJson(201, "yes", "", "monitoring turned off")
-	jsonResponses[CREATED_DO_SCAN_NEW_TWEET] = makeJson(201, "yes", "", "new tweet has arrived")
-	jsonResponses[CREATED_DO_NOT_SCAN] = makeJson(201, "no", "", "no new tweets")
-
-	jsonResponses[EXISTS_DO_SCAN_NOT_MONITORED] = makeJson(200, "yes", "", "not monitored")
-	jsonResponses[EXISTS_DO_SCAN_MONITORING_OFF] = makeJson(200, "yes", "", "monitoring turned off")
-	jsonResponses[EXISTS_DO_SCAN_NEW_TWEET] = makeJson(200, "yes", "", "new tweet has arrived")
-	jsonResponses[EXISTS_DO_NOT_SCAN] = makeJson(200, "no", "", "no new tweets")
-
-	jsonResponses[INVALID_REQUEST_NOT_PARSABLE] = makeJson(400, "", "invalid json", "cannot parse")
-	jsonResponses[INVALID_REQUEST_INVALID_JSON] = makeJson(400, "", "invalid json", "unexpected json")
-
-	jsonResponses[NOT_FOUND] = makeJson(404, "", "not found", "route down")
-
-	jsonResponses[INTERNAL_ERROR] = makeJson(500, "", "internal error", "please try again or contact tech support")
 }
 
 type Manager struct {
@@ -114,59 +132,93 @@ func (m *Manager) setRoutes() {
 	r := pat.New()
 
 	r.Put("/twitterstream/:id", http.HandlerFunc(m.httpHandler))
+	r.Get("/twitterstream/:id", http.HandlerFunc(m.httpHandler))
 	http.Handle("/", r)
 }
 
 func (m *Manager) httpHandler(w http.ResponseWriter, r *http.Request) {
-	var json_request jsonRequest
 
 	if m.router.State() != state.UP {
-		w.Write(*jsonResponses[NOT_FOUND])
+		updateAndSendResponse(w, r, RESPONSE_NOT_FOUND, SCAN_UNDEFINED, ERROR_ROUTE_DOWN, nil)
 		return
 	}
 
+	var json_request jsonRequest
 	dec := json.NewDecoder(r.Body)
 
-	w.Header().Set("Content-Type", "application/json")
 	err := dec.Decode(&json_request)
-	if err == nil {
-		store := m.store
-		account_id := string(r.URL.Query().Get(":id"))
-		account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, account_id)
-		if !m.Credentials(&json_request) {
-			w.Write(*jsonResponses[INVALID_REQUEST_INVALID_JSON])
+
+	if err != nil {
+		updateAndSendResponse(w, r, RESPONSE_BAD_REQUEST, SCAN_UNDEFINED, ERROR_JSON_UNPARSABLE, nil)
+		return
+	}
+	if !m.Credentials(&json_request) {
+		updateAndSendResponse(w, r, RESPONSE_BAD_REQUEST, SCAN_UNDEFINED, ERROR_JSON_INVALID, nil)
+		return
+	}
+	var account *account_entry.Entry
+	var account_present bool
+
+	var responseCode responseCodeEnum
+	var scanCode scanCodeEnum
+	var reasonCode reasonCodeEnum
+
+	store := m.store
+	account_id := string(r.URL.Query().Get(":id"))
+	account, account_present = store.AccountEntry(account_store.TWITTER_STREAM, account_id)
+	if account_present {
+		responseCode = RESPONSE_OK
+	} else {
+		store.AddAccountEntry(account_store.TWITTER_STREAM, account_id)
+		account, account_present = store.AccountEntry(account_store.TWITTER_STREAM, account_id)
+		if account_present {
+			responseCode = RESPONSE_CREATED
+			m.restart = true
+		} else {
+			updateAndSendResponse(w, r, RESPONSE_INTERNAL_ERROR, SCAN_UNDEFINED, ERROR_ACCOUNT_CANNOT_STORE, nil)
 			return
 		}
-		if account_present {
-			if m.monitor.State() != state.UP {
-				w.Write(*jsonResponses[EXISTS_DO_SCAN_MONITORING_OFF])
-			} else if account.State() == account_entry.UNMONITORED {
-				w.Write(*jsonResponses[EXISTS_DO_SCAN_NOT_MONITORED])
-			} else if account.IsUpdated() == true {
-				w.Write(*jsonResponses[EXISTS_DO_SCAN_NEW_TWEET])
-			} else {
-				w.Write(*jsonResponses[EXISTS_DO_NOT_SCAN])
-			}
-			account.SetLastScan()
+	}
+	if m.monitor.State() != state.UP {
+		scanCode = SCAN_YES
+		reasonCode = REASON_DO_SCAN_MONITORING_OFF
+	} else if account.State() == account_entry.UNMONITORED {
+		scanCode = SCAN_YES
+		reasonCode = REASON_DO_SCAN_NOT_MONITORED
+	} else if account.IsUpdated() == true {
+		scanCode = SCAN_YES
+		reasonCode = REASON_DO_SCAN_NEW_CONTENT
+	} else {
+		scanCode = SCAN_NO
+		reasonCode = REASON_DO_NOT_SCAN_NO_NEW_CONTENT
+	}
+	updateAndSendResponse(w, r, responseCode, scanCode, reasonCode, nil)
+}
+
+func updateAndSendResponse(w http.ResponseWriter, r *http.Request, responseCode responseCodeEnum, scanCode scanCodeEnum, reasonCode reasonCodeEnum, account *account_entry.Entry) {
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "GET" && r.Method != "HEAD" && r.Method != "PUT" {
+		w.WriteHeader(int(RESPONSE_NOT_ALLOWED))
+		w.Write(*makeJson(RESPONSE_NOT_ALLOWED, SCAN_UNDEFINED, ERROR_TRY_ANOTHER_METHOD))
+		return
+	}
+	json_bytes := makeJson(responseCode, scanCode, reasonCode)
+	if account != nil && r.Method == "PUT" {
+		if account.SetLastScan() == true {
+			w.WriteHeader(int(responseCode))
+			w.Write(*json_bytes)
 		} else {
-			store.AddAccountEntry(account_store.TWITTER_STREAM, account_id)
-			account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, account_id)
-			if !account_present {
-				w.Write(*jsonResponses[INTERNAL_ERROR])
-			} else if m.monitor.State() != state.UP {
-				w.Write(*jsonResponses[CREATED_DO_SCAN_MONITORING_OFF])
-			} else if account.State() == account_entry.UNMONITORED {
-				w.Write(*jsonResponses[CREATED_DO_SCAN_NOT_MONITORED])
-			} else if account.IsUpdated() == true {
-				w.Write(*jsonResponses[CREATED_DO_SCAN_NEW_TWEET])
-			} else {
-				w.Write(*jsonResponses[CREATED_DO_NOT_SCAN])
-			}
-			account.SetLastScan()
-			m.restart = true
+			w.WriteHeader(int(RESPONSE_INTERNAL_ERROR))
+			w.Write(*makeJson(RESPONSE_INTERNAL_ERROR, SCAN_UNDEFINED, ERROR_ACCOUNT_CANNOT_UPDATE_LASTSCAN))
+			return
 		}
 	} else {
-		w.Write(*jsonResponses[INVALID_REQUEST_NOT_PARSABLE])
+		w.WriteHeader(int(responseCode))
+		if r.Method != "HEAD" {
+			w.Write(*json_bytes)
+		}
 	}
 }
 
@@ -188,21 +240,20 @@ func (m *Manager) filter() {
 			if !slice_present {
 				log.Println("twitterstream not open yet")
 				m.monitor.Sleep(1 * time.Second)
-				continue
 			}
 			err := m.stream.Open(m.token, m.token_secret, m.oauth_token, m.oauth_token_secret, slice)
 			if err != nil {
 				log.Printf("Attempted to open connection but failed: %s - sleeping for 60 seconds\n", err)
 				m.monitor.Sleep(60 * time.Second)
-				continue
 			}
-      log.Println("Connection opened %b", m.stream.Up())
+			log.Println("Connection opened %b", m.stream.Up())
 			for _, account_id := range slice {
 				account, account_present := store.AccountEntry(account_store.TWITTER_STREAM, account_id)
 				if account_present {
 					account.SetState(account_entry.MONITORED)
 				}
 			}
+			continue
 		}
 		tweet_resp, err := m.stream.UnmarshalNext()
 		// stream is down to get tweet_resp == nil and err == nil
@@ -242,7 +293,7 @@ func (m *Manager) filter() {
 		}
 		log.Printf("WTF: %v\n", *tweet_resp)
 	}
-  log.Println("Shutting down filter()")
+	log.Println("Shutting down filter()")
 	m.stream.Close()
 	m.monitor.SetState(state.DOWN)
 	return
@@ -280,7 +331,7 @@ func (m *Manager) StopMonitor() (bool, error) {
 		return false, errors.New("Monitor not up")
 	}
 	m.monitor.SetState(state.SHUTDOWN)
-  m.stream.Close()
+	m.stream.Close()
 	m.monitor.Wait()
 	return true, nil
 }
@@ -305,10 +356,18 @@ func (m *Manager) StopRoute() (bool, error) {
 	return true, nil
 }
 
-func makeJson(code int, message string, err_message string, reason string) *[]byte {
-	json, err := json.Marshal(jsonResponse{Code: code, Message: message, Error: err_message, Reason: reason})
-	if err != nil {
-		log.Fatalf("Unable to jsonMarshal(code %d, message '%s', err '%s', reason '%s'\n", code, message, err_message, reason)
+func makeJson(response_code responseCodeEnum, scan_code scanCodeEnum, reason_code reasonCodeEnum) *[]byte {
+	j_response := jsonResponse{Code: response_code, Message: string(scan_code), Reason: string(reason_code)}
+	json_present, present := jsonResponses[j_response]
+	if present {
+		log.Printf("json response %d, scan '%s', reason '%s' is cached\n", response_code, scan_code, reason_code)
+		return json_present
 	}
-	return &json
+	json_create, err_create := json.Marshal(j_response)
+	if err_create != nil {
+		log.Printf("Unable to jsonMarshal(response %d, scan '%s', reason '%s', error '%s'\n", response_code, string(scan_code), string(reason_code))
+		return nil
+	}
+	jsonResponses[j_response] = &json_create
+	return jsonResponses[j_response]
 }
