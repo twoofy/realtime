@@ -146,10 +146,6 @@ func (m *Manager) httpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method != "GET" && r.Method != "HEAD" && r.Method != "PUT" {
-		return
-	}
-
 	if r.Method == "PUT" {
 		m.handlePut(w, r)
 	} else if r.Method == "GET" {
