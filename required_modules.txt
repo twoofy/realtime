@@ -1,3 +1,4 @@
 engines/twitterstream http://dev.socialiqnetworks.com:8000/svn/engines/twitterstream/trunk
 engines/github.com.bmizerany.pat http://dev.socialiqnetworks.com:8000/svn/engines/github.com.bmizerany.pat/trunk
 engines/github.com.garyburd.go-oauth http://dev.socialiqnetworks.com:8000/svn/engines/github.com.garyburd.go-oauth/trunk
+engines/github.com.blackjack.syslog http://dev.socialiqnetworks.com:8000/svn/engines/github.com.blackjack.syslog/trunk

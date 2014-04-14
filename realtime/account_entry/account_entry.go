@@ -1,10 +1,10 @@
 package account_entry
 
 import (
-	"fmt"
-	"log"
 	"sync"
 	"time"
+
+	"realtime/logger"
 )
 
 type AccountState int
@@ -18,7 +18,9 @@ type Entry struct {
 	account_id     string
 	last_scan_dt   int64
 	last_update_dt int64
+	scanner_seen   bool
 	state          AccountState
+	logger         logger.Logger
 	rwlock         sync.RWMutex
 }
 
@@ -40,6 +42,13 @@ func (h *Entry) State() AccountState {
 	return h.state
 }
 
+func (h *Entry) ScannerSeen() bool {
+	h.rwlock.RLock()
+	defer h.rwlock.RUnlock()
+
+	return h.scanner_seen
+}
+
 func (h *Entry) IsUpdated() bool {
 	h.rwlock.RLock()
 	defer h.rwlock.RUnlock()
@@ -50,26 +59,31 @@ func (h *Entry) IsUpdated() bool {
 	return false
 }
 
-func (h *Entry) SetLastUpdate() {
+func (h *Entry) SetLastUpdate() bool {
 	h.rwlock.Lock()
 	defer h.rwlock.Unlock()
 
-	last_update := h.last_update_dt
-	fmt.Printf("This is the last update %+v\n", last_update)
+	last_update := &h.last_update_dt
 	h.last_update_dt = int64(time.Now().Unix())
 
-	log.Printf("Account Store contents %v", h)
+	h.logger.Debugf("setting last content date from %d to %d", last_update, h.last_update_dt)
+	return true
 }
 
-func (h *Entry) SetLastScan() {
+func (h *Entry) SetLastScan() bool {
 	h.rwlock.Lock()
 	defer h.rwlock.Unlock()
 
-	last_scan := h.last_scan_dt
-	fmt.Printf("This is the last scan %+v\n", last_scan)
+	last_scan := &h.last_scan_dt
 	h.last_scan_dt = int64(time.Now().Unix())
 
-	log.Println("Account Store contents %v", h)
+	if h.scanner_seen == false && h.state == MONITORED {
+		h.scanner_seen = true
+	}
+
+	h.logger.Debugf("setting last scan date from %d to %d", last_scan, h.last_scan_dt)
+	h.logger.Debugf("setting last content date from %d to %d", 100, 10)
+	return true
 }
 
 func New(account_id string) Entry {
@@ -77,6 +91,8 @@ func New(account_id string) Entry {
 
 	account_entry.account_id = account_id
 	account_entry.state = UNMONITORED
+	account_entry.scanner_seen = false
+	account_entry.logger.Logprefix = "account " + account_id
 
 	return account_entry
 }

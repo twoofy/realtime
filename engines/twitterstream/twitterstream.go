@@ -2,8 +2,6 @@ package twitterstream
 
 import (
 	"encoding/json"
-	"errors"
-	"log"
 	"net/url"
 	"strings"
 	"time"
@@ -26,44 +24,20 @@ const (
 )
 
 type TwitterStream struct {
-	token              string
-	token_secret       string
-	oauth_token        string
-	oauth_token_secret string
-	state              State
-	UserIds            []string
 	*Stream
 }
 
-func (stream *TwitterStream) State() State {
-	return stream.state
-}
-
-func (stream *TwitterStream) Credentials(token string, token_secret string, oauth_token string, oauth_token_secret string) {
-	if stream.token != token || stream.token_secret != token_secret || stream.oauth_token != oauth_token || stream.oauth_token_secret != oauth_token_secret {
-		stream.Close()
-		stream.token = token
-		stream.token_secret = token_secret
-		stream.oauth_token = oauth_token
-		stream.oauth_token_secret = oauth_token_secret
-	}
-}
-
 func (stream *TwitterStream) Close() {
-	stream.state = CLOSING
-	if stream.Stream != nil {
-		log.Printf("Closing stream %s", stream.Stream)
+	if stream.Up() {
 		stream.Stream.Close()
 		stream.Stream = nil
 	}
-	stream.state = DOWN
 }
 
 func (stream *TwitterStream) UnmarshalNext() (*TweetResponse, error) {
 	var t TweetResponse
-	if stream.state != UP {
-		time.Sleep(1 * time.Second)
-		return nil, errors.New("stream not up")
+	if stream.Up() == false {
+		return nil, nil
 	}
 	if stream.Err() != nil {
 		return nil, stream.Err()
@@ -72,7 +46,6 @@ func (stream *TwitterStream) UnmarshalNext() (*TweetResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("received from twitter: %s\n", tweet)
 
 	if err := json.Unmarshal(tweet, &t.Tweet); err != nil {
 		return nil, err
@@ -127,51 +100,39 @@ type TweetResponse struct {
 	RetweetUserIdStr *string
 }
 
-func (stream *TwitterStream) Filter(userIds []string) {
-	stream.Close()
+func (stream *TwitterStream) Up() bool {
+	if stream.Stream == nil {
+		return false
+	}
+	return true
+}
 
-	stream.UserIds = userIds
-
+func (stream *TwitterStream) Open(token string, token_secret string, oauth_token string, oauth_token_secret string, userIds []string) error {
 	params := url.Values{"follow": {strings.Join(userIds, ",")}}
-	wait := 1
-	maxWait := 600
 	if len(userIds) == 0 {
 		time.Sleep(1 * time.Second)
-		stream.state = WAITING
-		log.Println("Nothing to filter, not opening connection")
-		return
+		return nil
 	}
-	stream.state = STARTING
-	for {
-		log.Println("Opening new twitterstream")
-		s, err := Open(
-			&oauth.Client{
-				Credentials: oauth.Credentials{
-					Token:  stream.token,
-					Secret: stream.token_secret,
-				},
+	s, err := Open(
+		&oauth.Client{
+			Credentials: oauth.Credentials{
+				Token:  token,
+				Secret: token_secret,
 			},
-			&oauth.Credentials{
-				Token:  stream.oauth_token,
-				Secret: stream.oauth_token_secret,
-			},
-			FilterUrl,
-			params,
-		)
-		if err != nil {
-			log.Printf("tracking failed: %s", err)
-			wait = wait << 1
-			log.Printf("waiting for %d seconds before reconnect", min(wait, maxWait))
-			time.Sleep(time.Duration(min(wait, maxWait)) * time.Second)
-			continue
-		} else {
-			wait = 1
-		}
-		log.Println("Connected to Twitter Stream!\n")
+		},
+		&oauth.Credentials{
+			Token:  oauth_token,
+			Secret: oauth_token_secret,
+		},
+		FilterUrl,
+		params,
+	)
+	if err == nil {
 		stream.Stream = s
-		stream.state = UP
-		return
+	} else {
+		stream.Stream = nil
 	}
+	return err
 }
 
 func min(a, b int) int {
@@ -183,6 +144,5 @@ func min(a, b int) int {
 
 func New() *TwitterStream {
 	var stream TwitterStream
-	stream.state = DOWN
 	return &stream
 }

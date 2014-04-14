@@ -1,82 +1,65 @@
 package main
 
 import (
-	"fmt"
+	"flag"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
+	"engines/github.com.blackjack.syslog"
 	"engines/github.com.bmizerany.pat"
-	"realtime/account_entry"
+
 	"realtime/account_store"
+	"realtime/credential"
+	"realtime/manager"
+	"realtime/monitors/twitterstream"
 )
 
-var Account_Store = account_store.New()
-
-func init() {
-	log.Println("In intialize")
-	//test code should be removed. This should be dynamic eventually
-
-	//init_Account_Store_Entry(account_store.TWITTER_STREAM, "2183242184")
-	//init_Account_Store_Entry(account_store.TWITTER_STREAM, "14681605")
-	//init_Account_Store_Entry(account_store.TWITTER_STREAM, "25365536")
-	//init_Account_Store_Entry(account_store.TWITTER_STREAM, "139162440")
-
-	// End code that should be removed.
-}
-
-func ScanRequestHandler(w http.ResponseWriter, r *http.Request) {
-	//params := mux.Vars(r)
-	w.Write([]byte("Yes"))
-}
-
-func scannerListen() {
-	m := pat.New()
-	m.Put("/twitterstream/:id", http.HandlerFunc(twitterHttpHandler))
-	http.Handle("/", m)
-	http.ListenAndServe(":8080", nil)
-}
+var port *string = flag.String("port", "", "Please enter the port for the client to listen on. Port is required.")
 
 func main() {
+	flag.Parse()
+	if *port == "" {
+		log.Println("Port is required.")
+		os.Exit(1)
+	}
+	syslog.Openlog("realtime", syslog.LOG_PID, syslog.LOG_DEBUG)
+	syslog.Noticef("Initialized on port %s", *port)
+	syslog.Debugf("Initialized on port %s", *port)
+
 	// handle control-c and kill
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
-	go scannerListen()
+	r := pat.New()
 
-	go handleTwitterFilter()
+	twitter_store := account_store.New(true)
+	twitter_credential := credential.NewCredential()
+	twitter_connector := twitterstream.NewConnector(twitter_store, twitter_credential)
+	twitter_router := twitterstream.NewRouter(twitter_store, twitter_credential, r)
+	//fake_manager := fakestream.New(store, r)
 
-	reloadTimer := time.Tick(60 * time.Second)
+	http.Handle("/", r)
+	go http.ListenAndServe(":"+*port, nil)
+
+	//monitoredArr := []monitors.Managed{twitter_manager, fake_manager}
+	monitoredArr := []manager.Manager{twitter_connector, twitter_router}
+	go manager.RestartMonitor(monitoredArr)
+
+	for _, m := range monitoredArr {
+		manager.Start(m)
+	}
+
 	for {
 		select {
 		case <-c:
-			log.Println("Got close signal")
-			twitterStream.Close()
+			syslog.Notice("Exiting")
+			for _, m := range monitoredArr {
+				manager.Stop(m)
+			}
 			os.Exit(1)
-		case <-reloadTimer:
-			restart := false
-			accounts, present := Account_Store.AccountEntries(account_store.TWITTER_STREAM)
-			if present {
-				for _, account := range accounts {
-					account_id := account.AccountId()
-					state := account.State()
-					log.Printf("Account %s in state %d\n", account_id, state)
-					if state == account_entry.UNMONITORED {
-						restart = true
-						break
-					}
-				}
-			}
-			if restart {
-				fmt.Println("Restarting twitterstream")
-				twitterStream.Close()
-			} else {
-				fmt.Println("No need to restart twitterstream")
-			}
 		}
 	}
-	select {}
 }
