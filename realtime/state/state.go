@@ -1,48 +1,46 @@
 package state
 
 import (
-	"log"
 	"sync"
 	"time"
 )
 
-type monitoredEnum string
+type StateEnum string
 
 const (
-	DOWN     monitoredEnum = "DOWN"
-	STARTUP  monitoredEnum = "STARTUP"
-	UP       monitoredEnum = "UP"
-	SHUTDOWN monitoredEnum = "SHUTDOWN"
+	DOWN     StateEnum = "DOWN"
+	STARTUP  StateEnum = "STARTUP"
+	UP       StateEnum = "UP"
+	SHUTDOWN StateEnum = "SHUTDOWN"
 )
 
-type MonitoredState struct {
-	name     string
-	state    monitoredEnum
+type State struct {
+	state    StateEnum
 	rwlock   sync.RWMutex
 	wg       sync.WaitGroup
 	sleeping chan bool
+	restart  bool
 }
 
-func New(name string) *MonitoredState {
-	var state MonitoredState
+func NewState() *State {
+	var state State
 
-	state.name = name
 	state.state = DOWN
 
 	return &state
 }
 
-func (state *MonitoredState) Wait() {
+func (state *State) Wait() {
 	state.wg.Wait()
 }
 
-func (state *MonitoredState) State() monitoredEnum {
+func (state *State) State() *StateEnum {
 	state.rwlock.RLock()
 	defer state.rwlock.RUnlock()
-	return state.state
+	return &state.state
 }
 
-func (state *MonitoredState) Sleep(dur time.Duration) {
+func (state *State) Sleep(dur time.Duration) {
 	timer := time.NewTimer(dur)
 	state.sleeping = make(chan bool)
 	select {
@@ -53,7 +51,7 @@ func (state *MonitoredState) Sleep(dur time.Duration) {
 	state.sleeping = nil
 }
 
-func (state *MonitoredState) SetState(new_state monitoredEnum) bool {
+func (state *State) SetState(new_state StateEnum) bool {
 	if new_state == state.state {
 		return true
 	}
@@ -66,22 +64,22 @@ func (state *MonitoredState) SetState(new_state monitoredEnum) bool {
 		state.state = DOWN
 		return true
 	} else if state.state == DOWN && new_state == STARTUP {
-		log.Printf("Add STARTUP WG for %s\n", state.name)
+		//log.Printf("Add STARTUP WG for %s\n", state.name)
 		state.wg.Add(1)
 	} else if state.state == STARTUP && new_state == UP {
-		log.Printf("Done STARTUP WG for %s\n", state.name)
+		//log.Printf("Done STARTUP WG for %s\n", state.name)
 		state.wg.Done()
 	} else if state.state == UP && new_state == SHUTDOWN {
-		log.Printf("Add SHUTDOWN WG for %s\n", state.name)
+		//log.Printf("Add SHUTDOWN WG for %s\n", state.name)
 		state.wg.Add(1)
 	} else if state.state == SHUTDOWN && new_state == DOWN {
-		log.Printf("Done SHUTDOWN WG for %s\n", state.name)
+		//log.Printf("Done SHUTDOWN WG for %s\n", state.name)
 		state.wg.Done()
 	} else {
-		log.Println("Cannot change for %s state from '%s' to '%s'\n", state.name, state.state, new_state)
+		//log.Printf("Cannot change for %s state from '%s' to '%s'\n", state.name, state.state, new_state)
 		return false
 	}
-	log.Printf("Changing state for %s from '%s' to '%s'\n", state.name, state.state, new_state)
+	//log.Printf("Changing state for %s from '%s' to '%s'\n", state.name, state.state, new_state)
 	state.state = new_state
 	return true
 }
