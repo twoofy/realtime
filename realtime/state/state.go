@@ -40,22 +40,32 @@ func (state *State) State() *StateEnum {
 	return &state.state
 }
 
+func (state *State) Sleeping() bool {
+	state.rwlock.RLock()
+	defer state.rwlock.RUnlock()
+	return state.sleeping != nil
+}
+
 func (state *State) Sleep(dur time.Duration) {
 	timer := time.NewTimer(dur)
+	state.rwlock.Lock()
 	state.sleeping = make(chan bool)
+	state.rwlock.Unlock()
 	select {
 	case <-state.sleeping:
 		timer.Stop()
 	case <-timer.C:
 	}
+	state.rwlock.Lock()
 	state.sleeping = nil
+	state.rwlock.Unlock()
 }
 
 func (state *State) SetState(new_state StateEnum) bool {
 	if new_state == state.state {
 		return true
 	}
-	if state.sleeping != nil {
+	if state.Sleeping() {
 		state.sleeping <- true
 	}
 	state.rwlock.Lock()

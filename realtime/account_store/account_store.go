@@ -95,9 +95,7 @@ func (account_store *Store) SetRestart(state bool) {
 	if account_store.restart_on_change == false {
 		return
 	}
-	account_store.rwlock.RLock()
 	if account_store.restart == state {
-		account_store.rwlock.RUnlock()
 		return
 	}
 	account_store.rwlock.Lock()
@@ -106,14 +104,23 @@ func (account_store *Store) SetRestart(state bool) {
 }
 
 func (account_store *Store) AccountSlice() ([]string, bool) {
+	account_store.rwlock.RLock()
+	defer account_store.rwlock.RUnlock()
+
 	return account_store.account_slice, true
 }
 
 func (account_store *Store) AccountEntries() (map[string]*account_entry.Entry, bool) {
+	account_store.rwlock.RLock()
+	defer account_store.rwlock.RUnlock()
+
 	return account_store.account_entries, true
 }
 
 func (account_store *Store) AccountEntry(account_id string) (*account_entry.Entry, bool) {
+	account_store.rwlock.RLock()
+	defer account_store.rwlock.RUnlock()
+
 	_, account_present := account_store.account_entries[account_id]
 	if !account_present {
 		return nil, false

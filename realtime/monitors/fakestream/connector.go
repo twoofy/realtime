@@ -1,10 +1,9 @@
-package twitterstream
+package fakestream
 
 import (
 	"time"
-	"log"
 
-	"engines/twitterstream"
+	"engines/fakestream"
 
 	"realtime/account_entry"
 	"realtime/account_store"
@@ -15,7 +14,7 @@ import (
 
 type Connector struct {
 	manager.BaseConnector
-	stream *twitterstream.TwitterStream
+	stream *fakestream.FakeStream
 }
 
 func NewConnector(store *account_store.Store, credential *credential.Credential) *Connector {
@@ -52,7 +51,7 @@ func (c *Connector) filter() {
 		return
 	}
 
-	c.stream = twitterstream.New()
+	c.stream = fakestream.New()
 	slice, slice_present := store.AccountSlice()
 
 	c_state.SetState(state.UP)
@@ -96,35 +95,17 @@ func (c *Connector) filter() {
 			c.stream.Close()
 			continue
 		}
-		if resp.ScanUserIdStr != "" {
-			account_id := resp.ScanUserIdStr
+		if resp.IdStr != "" {
+			account_id := resp.IdStr
 			c.Logger.Debugf("New content for account %s\n", account_id)
 			account, present := store.AccountEntry(account_id)
 			if present {
 				account.SetLastUpdate()
 				continue
-			}
-			if resp.RetweetUserIdStr != "" {
-				retweet_account_id := resp.RetweetUserIdStr
-				_, retweet_present := store.AccountEntry(retweet_account_id)
-				if retweet_present {
-					c.Logger.Debugf("Skipping %s because it is a retweet of a monitored account %s\n", account_id, retweet_account_id)
-				} else {
-					create := false
-					for _, user_mention := range resp.UserMentions {
-						if user_mention.IdStr == account_id {
-							create = true
-							c.Logger.Debugf("Skipping %s because it was found in user mentions for account %s\n", account_id, retweet_account_id)
-							break;
-						}
-					}
-					if create {
-						c.Logger.Warningf("Initializing non-existant store for %s  - this should not happen, content %+v\n", account_id, resp)
-						log.Fatalf("WTF: %s\n", resp.Rawsource)
-						account = store.AddAccountEntry(account_id)
-						account.SetLastUpdate()
-					}
-				}
+			} else {
+				c.Logger.Warningf("Initializing non-existant store for %s  - this should not happen, content %+v\n", account_id, resp)
+				account = store.AddAccountEntry(account_id)
+				account.SetLastUpdate()
 				continue
 			}
 		}
