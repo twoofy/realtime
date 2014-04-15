@@ -1,12 +1,12 @@
 package twitterstream
 
 import (
-	"log"
 	"encoding/json"
+	"log"
 	"net/url"
 	"strings"
-	"time"
 	"sync"
+	"time"
 
 	"engines/github.com.garyburd.go-oauth/oauth"
 )
@@ -34,7 +34,7 @@ func (stream *TwitterStream) Close() {
 	stream.rwlock.Lock()
 	defer stream.rwlock.Unlock()
 	if stream.Up() {
-log.Printf("Closing twitterstream")
+		log.Printf("Closing twitterstream")
 		stream.Stream.Close()
 		stream.Stream = nil
 	}
@@ -60,7 +60,7 @@ func (stream *TwitterStream) UnmarshalNext() (*TweetResponse, error) {
 	if t.Tweet.RetweetedStatus.User.IdString != "" {
 		t.RetweetUserId = t.Tweet.RetweetedStatus.User.Id
 		t.RetweetUserIdStr = t.Tweet.RetweetedStatus.User.IdString
-		
+
 		for _, ent := range t.Tweet.RetweetedStatus.Entities.UserMentions {
 			t.UserMentions = append(t.UserMentions, TweetUserMention{Id: ent.Id, IdStr: ent.IdString})
 		}
@@ -90,7 +90,7 @@ type User struct {
 type RetweetedStatus struct {
 	Id       int64  `json:"id"`
 	IdString string `json:"id_str"`
-	User     User    `json:"user"`
+	User     User   `json:"user"`
 	Entities `json:"entities"`
 }
 
@@ -114,12 +114,12 @@ type UnmarshalledTweet struct {
 	InReplyToUserIdStr string `json:"in_reply_to_user_id_str"`
 
 	RetweetedStatus RetweetedStatus `json:"retweeted_status"`
-	Entities `json:"entities"`
+	Entities        `json:"entities"`
 }
 
 type TweetUserMention struct {
-		Id int64
-		IdStr string
+	Id    int64
+	IdStr string
 }
 
 type TweetResponse struct {
@@ -131,7 +131,7 @@ type TweetResponse struct {
 	RetweetUserIdStr string
 
 	UserMentions []TweetUserMention
-	Rawsource []byte
+	Rawsource    []byte
 }
 
 func (stream *TwitterStream) Up() bool {

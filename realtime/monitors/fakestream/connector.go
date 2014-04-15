@@ -52,7 +52,7 @@ func (c *Connector) filter() {
 	}
 
 	c.stream = fakestream.New()
-	slice, slice_present := store.AccountSlice()
+	slice := store.AccountSlice()
 
 	c_state.SetState(state.UP)
 	c.Logger.Debug("Filter is up")
@@ -61,20 +61,22 @@ func (c *Connector) filter() {
 			break
 		}
 		if c.stream.Up() == false {
-			if !slice_present {
-				c.Logger.Debug("connector not open yet")
-				c_state.Sleep(1 * time.Second)
-			}
-			err := c.stream.Open(AppId, AppSecret, ApiOauthToken, ApiOauthTokenSecret, slice)
-			if err != nil {
-				c.Logger.Warningf("Attempted to open connection but failed: %s - sleeping for 60 seconds\n", err)
-				c_state.Sleep(60 * time.Second)
-			}
-			c.Logger.Info("connector opened")
-			for _, account_id := range slice {
-				account, account_present := store.AccountEntry(account_id)
-				if account_present {
-					account.SetState(account_entry.MONITORED)
+			if len(slice) == 0 {
+				c.Logger.Debug("no need to open connector yet")
+				c_state.Sleep(10 * time.Second)
+			} else {
+				err := c.stream.Open(AppId, AppSecret, ApiOauthToken, ApiOauthTokenSecret, slice)
+				if err != nil {
+					c.Logger.Warningf("Attempted to open connection but failed: %s - sleeping for 60 seconds\n", err)
+					c_state.Sleep(60 * time.Second)
+				} else {
+					c.Logger.Info("connector opened")
+					for _, account_id := range slice {
+						account, account_present := store.AccountEntry(account_id)
+						if account_present {
+							account.SetState(account_entry.MONITORED)
+						}
+					}
 				}
 			}
 			continue

@@ -112,18 +112,18 @@ func (account_store *Store) SetRestart(state bool) {
 	account_store.restart = state
 }
 
-func (account_store *Store) AccountSlice() ([]string, bool) {
+func (account_store *Store) AccountSlice() []string {
 	account_store.rwlock.RLock()
 	defer account_store.rwlock.RUnlock()
 
-	return account_store.account_slice, true
+	return account_store.account_slice
 }
 
-func (account_store *Store) AccountEntries() (map[string]*account_entry.Entry, bool) {
+func (account_store *Store) AccountEntries() map[string]*account_entry.Entry {
 	account_store.rwlock.RLock()
 	defer account_store.rwlock.RUnlock()
 
-	return account_store.account_entries, true
+	return account_store.account_entries
 }
 
 func (account_store *Store) AccountEntry(account_id string) (*account_entry.Entry, bool) {
