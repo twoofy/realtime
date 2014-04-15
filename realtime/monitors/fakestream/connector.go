@@ -18,9 +18,9 @@ type Connector struct {
 }
 
 func NewConnector(store *account_store.Store, credential *credential.Credential) *Connector {
-	var c Connector
+	c := new(Connector)
 	c.InitBaseConnector(NAME, store, credential)
-	return &c
+	return c
 }
 
 func (c *Connector) Startup() bool {

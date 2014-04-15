@@ -15,9 +15,9 @@ type Router struct {
 }
 
 func NewRouter(store *account_store.Store, credential *credential.Credential, pat *pat.PatternServeMux) *Router {
-	var r Router
+	r := new(Router)
 	r.InitBaseRouter(NAME, store, credential, pat)
-	return &r
+	return r
 }
 
 func (r *Router) Startup() bool {

@@ -1,8 +1,8 @@
 package twitterstream
 
 import (
-	"time"
 	"log"
+	"time"
 
 	"engines/twitterstream"
 
@@ -19,9 +19,9 @@ type Connector struct {
 }
 
 func NewConnector(store *account_store.Store, credential *credential.Credential) *Connector {
-	var c Connector
+	c := new(Connector)
 	c.InitBaseConnector(NAME, store, credential)
-	return &c
+	return c
 }
 
 func (c *Connector) Startup() bool {
@@ -36,7 +36,6 @@ func (c *Connector) Shutdown() bool {
 }
 
 func (c *Connector) filter() {
-	c_state := c.State()
 	store := c.Store()
 
 	// If something changes the Credential we do not want to create a race-condition here
@@ -47,29 +46,29 @@ func (c *Connector) filter() {
 	ApiOauthToken := credential.ApiOauthToken()
 	ApiOauthTokenSecret := credential.ApiOauthTokenSecret()
 
-	c.Logger.Debugf("Filter initiated to state %s\n", *c_state.State())
-	if *c_state.State() != state.STARTUP {
+	c.Logger.Debugf("Filter initiated to state %s\n", c.State().State())
+	if *c.State().State() != state.STARTUP {
 		return
 	}
 
 	c.stream = twitterstream.New()
 	slice, slice_present := store.AccountSlice()
 
-	c_state.SetState(state.UP)
+	c.State().SetState(state.UP)
 	c.Logger.Debug("Filter is up")
 	for {
-		if *c_state.State() == state.SHUTDOWN {
+		if *c.State().State() == state.SHUTDOWN {
 			break
 		}
 		if c.stream.Up() == false {
 			if !slice_present {
 				c.Logger.Debug("connector not open yet")
-				c_state.Sleep(1 * time.Second)
+				c.State().Sleep(1 * time.Second)
 			}
 			err := c.stream.Open(AppId, AppSecret, ApiOauthToken, ApiOauthTokenSecret, slice)
 			if err != nil {
 				c.Logger.Warningf("Attempted to open connection but failed: %s - sleeping for 60 seconds\n", err)
-				c_state.Sleep(60 * time.Second)
+				c.State().Sleep(60 * time.Second)
 			}
 			c.Logger.Info("connector opened")
 			for _, account_id := range slice {
@@ -115,7 +114,7 @@ func (c *Connector) filter() {
 						if user_mention.IdStr == account_id {
 							create = true
 							c.Logger.Debugf("Skipping %s because it was found in user mentions for account %s\n", account_id, retweet_account_id)
-							break;
+							break
 						}
 					}
 					if create {
@@ -132,6 +131,6 @@ func (c *Connector) filter() {
 	}
 	c.Logger.Info("Shutting down filter()")
 	c.stream.Close()
-	c_state.SetState(state.DOWN)
+	c.State().SetState(state.DOWN)
 	return
 }

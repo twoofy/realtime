@@ -20,18 +20,19 @@ type Store struct {
 	account_slice     []string
 	restart_on_change bool
 	restart           bool
+	count             int64
 	rwlock            sync.RWMutex
 }
 
 func New(restart_on_change bool) *Store {
-	var account_store Store
+	account_store := new(Store)
 
 	account_store.account_entries = make(map[string]*account_entry.Entry)
 	account_store.restart_on_change = restart_on_change
 	account_store.restart = false
 
 	syslog.Debugf("new store created restart on change: %t", restart_on_change)
-	return &account_store
+	return account_store
 }
 
 func (account_store *Store) AddAccountEntry(account_id string) *account_entry.Entry {
@@ -51,6 +52,7 @@ func (account_store *Store) AddAccountEntry(account_id string) *account_entry.En
 	Store[account_id] = &account_entry
 	account_store.account_slice = append(account_store.account_slice, account_id)
 	account_store.restart = true
+	account_store.count += 1
 	return &account_entry
 }
 
@@ -79,7 +81,14 @@ func (account_store *Store) RemoveAccountEntry(account_id string) *account_entry
 	account_store.account_slice = new_slice
 
 	account_store.restart = true
+	account_store.count -= 1
 	return mc
+}
+
+func (account_store *Store) Count() int64 {
+	account_store.rwlock.RLock()
+	defer account_store.rwlock.RUnlock()
+	return account_store.count
 }
 
 func (account_store *Store) NeedsRestart() bool {

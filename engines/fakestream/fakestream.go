@@ -72,6 +72,6 @@ func (stream *FakeStream) Open(token string, token_secret string, oauth_token st
 }
 
 func New() *FakeStream {
-	var stream FakeStream
-	return &stream
+	streamPtr := new(FakeStream)
+  return streamPtr
 }

@@ -55,25 +55,29 @@ func RestartMonitor(managers []Manager) {
 }
 
 func Start(m Manager) *state.StateEnum {
-	s := m.State()
-	if *s.State() != state.DOWN {
+	if *m.State().State() != state.DOWN {
+		m.Log().Info("not starting because its not down")
 		return nil
 	}
-	s.SetState(state.STARTUP)
+	m.State().SetState(state.STARTUP)
+	m.Log().Infof("state set to %s", *m.State().State())
 	// m.Startup() needs to call SetState(state.UP) or will block on Wait()
 	m.Startup()
-	s.Wait()
-	return s.State()
+	m.State().Wait()
+	m.Log().Infof("state set to %s", *m.State().State())
+	return m.State().State()
 }
 
 func Stop(m Manager) *state.StateEnum {
-	s := m.State()
-	if *s.State() != state.UP {
+	if *m.State().State() != state.UP {
+		m.Log().Info("not shutting down its not up")
 		return nil
 	}
-	s.SetState(state.SHUTDOWN)
+	m.State().SetState(state.SHUTDOWN)
+	m.Log().Infof("state set to %s", *m.State().State())
 	// m.Shutdown() needs to call SetState(state.DOWN) or will block on Wait()
 	m.Shutdown()
-	s.Wait()
-	return s.State()
+	m.State().Wait()
+	m.Log().Infof("state set to %s", *m.State().State())
+	return m.State().State()
 }

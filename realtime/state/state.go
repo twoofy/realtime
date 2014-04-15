@@ -23,11 +23,11 @@ type State struct {
 }
 
 func NewState() *State {
-	var state State
+	state := new(State)
 
 	state.state = DOWN
 
-	return &state
+	return state
 }
 
 func (state *State) Wait() {
@@ -38,6 +38,18 @@ func (state *State) State() *StateEnum {
 	state.rwlock.RLock()
 	defer state.rwlock.RUnlock()
 	return &state.state
+}
+
+func (state *State) Up() bool {
+	state.rwlock.RLock()
+	defer state.rwlock.RUnlock()
+	return state.state == UP
+}
+
+func (state *State) Down() bool {
+	state.rwlock.RLock()
+	defer state.rwlock.RUnlock()
+	return state.state == DOWN
 }
 
 func (state *State) Sleeping() bool {

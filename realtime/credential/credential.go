@@ -13,18 +13,18 @@ type JsonCredential struct {
 	ApiOauthTokenSecret string `json:"api_oauth_token_secret"`
 }
 type Credential struct {
-	app_id string
-	app_secret string
-	api_oauth_token string
+	app_id                 string
+	app_secret             string
+	api_oauth_token        string
 	api_oauth_token_secret string
-	stale               bool
-	rwlock              sync.RWMutex
+	stale                  bool
+	rwlock                 sync.RWMutex
 }
 
 func NewCredential() *Credential {
-	var c Credential
+	c := new(Credential)
 	c.stale = true
-	return &c
+	return c
 }
 
 func (credential *JsonCredential) Valid() bool {
@@ -35,15 +35,15 @@ func (credential *JsonCredential) Valid() bool {
 }
 
 func CredentialFromJson(r io.ReadCloser) *JsonCredential {
-	var c JsonCredential
+	json_credential := new(JsonCredential)
 	dec := json.NewDecoder(r)
 
-	err := dec.Decode(&c)
+	err := dec.Decode(&json_credential)
 
 	if err != nil {
 		return nil
 	}
-	return &c
+	return json_credential
 }
 
 func (c *Credential) Changed(new_credential *JsonCredential) bool {
@@ -84,7 +84,7 @@ func (c *Credential) Update(new_credential *JsonCredential) {
 	if false && c.stale == false {
 		return
 	}
-	if false && ! c.Changed(new_credential) {
+	if false && !c.Changed(new_credential) {
 		return
 	}
 	c.rwlock.Lock()

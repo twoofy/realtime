@@ -2,9 +2,9 @@ package manager
 
 import (
 	"realtime/account_store"
-	"realtime/state"
 	"realtime/credential"
 	"realtime/logger"
+	"realtime/state"
 )
 
 type baseManager struct {
@@ -14,7 +14,6 @@ type baseManager struct {
 	name       string
 	Logger     logger.Logger
 }
-
 
 func (b *baseManager) Credential() *credential.Credential {
 	return b.credential.Credential()
@@ -37,4 +36,3 @@ func (b *baseManager) initbaseManager(name string, store *account_store.Store, c
 	b.credential = credential
 	b.name = name
 }
-

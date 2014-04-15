@@ -12,7 +12,6 @@ import (
 	"realtime/state"
 )
 
-
 type responseCodeEnum int
 
 const (
